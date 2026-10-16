@@ -8,8 +8,6 @@ APP_DIR="${APP_DIR:-/opt/todo-assistant}"
 : "${ECR_REGISTRY:?ECR_REGISTRY is required}"
 : "${BACKEND_IMAGE:?BACKEND_IMAGE is required}"
 : "${FRONTEND_IMAGE:?FRONTEND_IMAGE is required}"
-: "${SECRET_ARN:?SECRET_ARN is required}"
-: "${CORS_ALLOWED_ORIGINS:?CORS_ALLOWED_ORIGINS is required}"
 
 export AWS_DEFAULT_REGION="$AWS_REGION"
 
@@ -21,21 +19,21 @@ fi
 install -d -o root -g root -m 0750 "$APP_DIR"
 cd "$APP_DIR"
 
-# Retrieve application secrets without printing them.
-secret_json="$(aws secretsmanager get-secret-value \
-  --secret-id "$SECRET_ARN" \
-  --query SecretString \
-  --output text)"
+# Require a protected application environment file.
+if [[ ! -f "$APP_DIR/app.env" ]]; then
+  echo "ERROR: $APP_DIR/app.env is missing." >&2
+  exit 1
+fi
 
-export DB_URL DB_USERNAME DB_PASSWORD
-export COHERE_API_KEY SLACK_WEBHOOK_URL
+chmod 0600 "$APP_DIR/app.env"
 
-DB_URL="$(jq -er '.DB_URL' <<< "$secret_json")"
-DB_USERNAME="$(jq -er '.DB_USERNAME' <<< "$secret_json")"
-DB_PASSWORD="$(jq -er '.DB_PASSWORD' <<< "$secret_json")"
-COHERE_API_KEY="$(jq -r '.COHERE_API_KEY // ""' <<< "$secret_json")"
-SLACK_WEBHOOK_URL="$(jq -r '.SLACK_WEBHOOK_URL // ""' <<< "$secret_json")"
-unset secret_json
+# Confirm required configuration keys exist without printing their values.
+for key in DB_URL DB_USERNAME DB_PASSWORD; do
+  if ! grep -qE "^${key}=" "$APP_DIR/app.env"; then
+    echo "ERROR: Required key $key is missing from app.env." >&2
+    exit 1
+  fi
+done
 
 # Save the previous images only after they have passed a health check.
 if [[ -f "$APP_DIR/last-good.env" ]]; then
@@ -52,7 +50,10 @@ export BACKEND_IMAGE FRONTEND_IMAGE
 docker pull "$BACKEND_IMAGE"
 docker pull "$FRONTEND_IMAGE"
 
-if ! docker compose -f docker-compose.prod.yml up -d --remove-orphans; then
+if ! docker compose \
+  --env-file "$APP_DIR/app.env" \
+  -f docker-compose.prod.yml \
+  up -d --remove-orphans; then
   echo "ERROR: Compose deployment failed." >&2
   if [[ -f "$APP_DIR/previous-release.env" ]]; then
     cp "$APP_DIR/previous-release.env" "$APP_DIR/last-good.env"

@@ -136,6 +136,21 @@ resource "aws_iam_role_policy_attachment" "ecr_read" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
 }
 
+resource "aws_iam_role_policy" "artifact_read" {
+  name = "${var.project_name}-artifact-read"
+  role = aws_iam_role.ec2.name
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid      = "DownloadDeploymentArtifacts"
+      Effect   = "Allow"
+      Action   = ["s3:GetObject"]
+      Resource = "${aws_s3_bucket.artifacts.arn}/releases/*"
+    }]
+  })
+}
+
 resource "aws_iam_instance_profile" "ec2" {
   name = "${var.project_name}-instance-profile"
   role = aws_iam_role.ec2.name
@@ -144,12 +159,12 @@ resource "aws_iam_instance_profile" "ec2" {
 # Amazon Linux 2023
 
 data "aws_ami" "amazon_linux" {
-  most_recent = true
+  most_recent = false
   owners      = ["amazon"]
 
   filter {
-    name   = "name"
-    values = ["al2023-ami-2023.*-x86_64"]
+    name   = "image-id"
+    values = ["ami-0cdfc1e40cc5ca08a"]
   }
 
   filter {
@@ -194,10 +209,11 @@ resource "aws_db_instance" "mysql" {
   allocated_storage = 20
   storage_type      = "gp3"
 
-  db_name  = "todo_db"
-  username = var.db_username
-  password = var.db_password
-  port     = 3306
+  db_name             = "todo_db"
+  username            = var.db_username
+  password_wo         = var.db_password
+  password_wo_version = 1
+  port                = 3306
 
   db_subnet_group_name   = aws_db_subnet_group.main.name
   vpc_security_group_ids = [aws_security_group.rds.id]
@@ -237,4 +253,45 @@ resource "aws_ecr_repository" "frontend" {
   }
 
   tags = { Name = "${var.project_name}-frontend" }
+}
+
+
+# S3 bucket for versioned deployment artifacts
+
+data "aws_caller_identity" "current" {}
+
+resource "aws_s3_bucket" "artifacts" {
+  bucket = "${var.project_name}-artifacts-${data.aws_caller_identity.current.account_id}-${var.aws_region}"
+
+  tags = {
+    Name    = "${var.project_name}-artifacts"
+    Project = var.project_name
+  }
+}
+
+resource "aws_s3_bucket_public_access_block" "artifacts" {
+  bucket = aws_s3_bucket.artifacts.id
+
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+resource "aws_s3_bucket_server_side_encryption_configuration" "artifacts" {
+  bucket = aws_s3_bucket.artifacts.id
+
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
+}
+
+resource "aws_s3_bucket_versioning" "artifacts" {
+  bucket = aws_s3_bucket.artifacts.id
+
+  versioning_configuration {
+    status = "Enabled"
+  }
 }

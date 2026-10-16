@@ -16,3 +16,9 @@ output "backend_ecr_url" {
 output "frontend_ecr_url" {
   value = aws_ecr_repository.frontend.repository_url
 }
+
+
+output "artifact_bucket" {
+  description = "Private S3 bucket for deployment artifacts"
+  value       = aws_s3_bucket.artifacts.bucket
+}

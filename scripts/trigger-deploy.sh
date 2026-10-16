@@ -6,10 +6,6 @@ set -Eeuo pipefail
 : "${IMAGE_TAG:?IMAGE_TAG is required}"
 : "${BACKEND_REPO:?BACKEND_REPO is required}"
 : "${FRONTEND_REPO:?FRONTEND_REPO is required}"
-: "${SECRET_ARN:?SECRET_ARN is required}"
-: "${CORS_ALLOWED_ORIGINS:?CORS_ALLOWED_ORIGINS is required}"
-: "${TARGET_TAG_KEY:?TARGET_TAG_KEY is required}"
-: "${TARGET_TAG_VALUE:?TARGET_TAG_VALUE is required}"
 
 export AWS_DEFAULT_REGION="$AWS_REGION"
 
@@ -19,17 +15,16 @@ registry="${account_id}.dkr.ecr.${AWS_REGION}.amazonaws.com"
 backend_image="${registry}/${BACKEND_REPO}:${IMAGE_TAG}"
 frontend_image="${registry}/${FRONTEND_REPO}:${IMAGE_TAG}"
 
-instance_ids="$(
-  aws ec2 describe-instances \
-    --filters \
-      "Name=tag:${TARGET_TAG_KEY},Values=${TARGET_TAG_VALUE}" \
-      "Name=instance-state-name,Values=running" \
-    --query 'Reservations[].Instances[].InstanceId' \
-    --output text
-)"
+instance_id="i-0979ce44516967c47"
 
-if [[ -z "$instance_ids" || "$instance_ids" == "None" ]]; then
-  echo "ERROR: No running application instance matched the configured tags." >&2
+state="$(aws ec2 describe-instances \
+  --instance-ids "$instance_id" \
+  --region "$AWS_REGION" \
+  --query 'Reservations[0].Instances[0].State.Name' \
+  --output text)"
+
+if [[ "$state" != "running" ]]; then
+  echo "ERROR: Application instance $instance_id is not running (state: $state)." >&2
   exit 1
 fi
 
@@ -46,8 +41,6 @@ commands_json="$(
     --arg registry "$registry" \
     --arg backend "$backend_image" \
     --arg frontend "$frontend_image" \
-    --arg secret "$SECRET_ARN" \
-    --arg cors "$CORS_ALLOWED_ORIGINS" \
     --arg tag "$IMAGE_TAG" \
     '[
       "set -eu",
@@ -57,8 +50,6 @@ commands_json="$(
       "export ECR_REGISTRY=" + ($registry | @sh),
       "export BACKEND_IMAGE=" + ($backend | @sh),
       "export FRONTEND_IMAGE=" + ($frontend | @sh),
-      "export SECRET_ARN=" + ($secret | @sh),
-      "export CORS_ALLOWED_ORIGINS=" + ($cors | @sh),
       "export IMAGE_TAG=" + ($tag | @sh),
       "aws s3 cp \"s3://${ARTIFACT_BUCKET}/releases/${IMAGE_TAG}/docker-compose.prod.yml\" /opt/todo-assistant/docker-compose.prod.yml",
       "aws s3 cp \"s3://${ARTIFACT_BUCKET}/releases/${IMAGE_TAG}/health-check.sh\" /opt/todo-assistant/health-check.sh",
