@@ -15,10 +15,6 @@ pipeline {
         ARTIFACT_BUCKET = "${env.ARTIFACT_BUCKET}"
         BACKEND_REPO = "${env.BACKEND_REPO}"
         FRONTEND_REPO = "${env.FRONTEND_REPO}"
-        SECRET_ARN = "${env.SECRET_ARN}"
-        CORS_ALLOWED_ORIGINS = "${env.CORS_ALLOWED_ORIGINS}"
-        TARGET_TAG_KEY = "${env.TARGET_TAG_KEY}"
-        TARGET_TAG_VALUE = "${env.TARGET_TAG_VALUE}"
     }
 
     stages {
