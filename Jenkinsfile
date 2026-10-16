@@ -1,4 +1,3 @@
-
 pipeline {
     agent any
 
@@ -10,16 +9,21 @@ pipeline {
     }
 
     environment {
-        AWS_REGION = "${env.AWS_REGION}"
-        ARTIFACT_BUCKET = "${env.ARTIFACT_BUCKET}"
-        BACKEND_REPO = "${env.BACKEND_REPO}"
-        FRONTEND_REPO = "${env.FRONTEND_REPO}"
+        AWS_REGION       = "${env.AWS_REGION}"
+        ARTIFACT_BUCKET  = "${env.ARTIFACT_BUCKET}"
+        BACKEND_REPO     = "${env.BACKEND_REPO}"
+        FRONTEND_REPO    = "${env.FRONTEND_REPO}"
+
+        // Stable identifier for the existing application EC2 instance.
+        // Its public IP is looked up dynamically after deployment.
+        APP_INSTANCE_ID  = 'i-0979ce44516967c47'
     }
 
     stages {
         stage('Checkout') {
             steps {
                 checkout scm
+
                 script {
                     env.IMAGE_TAG = sh(
                         script: 'git rev-parse --short=12 HEAD',
@@ -34,22 +38,23 @@ pipeline {
                 sh '''
                     set -eu
 
-                    for name in AWS_REGION ARTIFACT_BUCKET BACKEND_REPO FRONTEND_REPO
-                    do
-                        eval 'value=${'${name}':-}'
-                        if [ -z "$value" ] || [ "$value" = "null" ]; then
-                            echo "ERROR: $name is not configured." >&2
+                    : "${AWS_REGION:?Configure AWS_REGION in Jenkins}"
+                    : "${ARTIFACT_BUCKET:?Configure ARTIFACT_BUCKET in Jenkins}"
+                    : "${BACKEND_REPO:?Configure BACKEND_REPO in Jenkins}"
+                    : "${FRONTEND_REPO:?Configure FRONTEND_REPO in Jenkins}"
+                    : "${APP_INSTANCE_ID:?Application instance ID is required}"
+
+                    for tool in docker aws jq gitleaks trivy npm; do
+                        if ! command -v "$tool" >/dev/null 2>&1; then
+                            echo "ERROR: Required tool not found: $tool" >&2
                             exit 1
                         fi
                     done
 
-                    command -v docker
-                    command -v aws
-                    command -v jq
-                    command -v gitleaks
-                    command -v trivy
-                    command -v npm
-                    command -v java
+                    docker --version
+                    aws --version
+                    npm --version
+                    trivy --version
                 '''
             }
         }
@@ -80,6 +85,7 @@ pipeline {
                     }
                 }
             }
+
             post {
                 always {
                     junit(
@@ -107,6 +113,9 @@ pipeline {
             steps {
                 sh '''
                     set -eu
+
+                    # Temporary non-blocking security scan.
+                    # Review and remediate reported vulnerabilities.
                     trivy fs \
                         --config "" \
                         --scanners vuln \
@@ -154,6 +163,8 @@ pipeline {
                 sh '''
                     set -eu
 
+                    # Scan the actual images, not the current directory.
+                    # Temporary non-blocking gate; findings remain visible.
                     trivy image \
                         --config "" \
                         --scanners vuln \
@@ -192,17 +203,48 @@ pipeline {
                 sh '''
                     set -eu
 
-                    RELEASE_PREFIX="releases/${IMAGE_TAG}"
-                    DESTINATION="s3://${ARTIFACT_BUCKET}/${RELEASE_PREFIX}"
+                    # Find the production Compose file instead of assuming
+                    # it exists at the repository root.
+                    COMPOSE_FILE=""
 
-                    aws s3 cp docker-compose.prod.yml \
+                    for candidate in \
+                        docker-compose.prod.yml \
+                        deploy/docker-compose.prod.yml \
+                        scripts/docker-compose.prod.yml
+                    do
+                        if [ -f "$candidate" ] &&
+                           grep -q 'BACKEND_IMAGE' "$candidate" &&
+                           grep -q 'FRONTEND_IMAGE' "$candidate"; then
+                            COMPOSE_FILE="$candidate"
+                            break
+                        fi
+                    done
+
+                    if [ -z "$COMPOSE_FILE" ]; then
+                        echo "ERROR: Production Compose file not found."
+                        find . -maxdepth 5 -type f \
+                            \\( -name 'docker-compose*.yml' -o -name 'compose*.yaml' \\) \
+                            -print
+                        exit 1
+                    fi
+
+                    for file in deploy-app.sh health-check.sh rollback.sh; do
+                        if [ ! -f "scripts/$file" ]; then
+                            echo "ERROR: Missing scripts/$file" >&2
+                            exit 1
+                        fi
+                    done
+
+                    DESTINATION="s3://${ARTIFACT_BUCKET}/releases/${IMAGE_TAG}"
+
+                    aws s3 cp "$COMPOSE_FILE" \
                         "${DESTINATION}/docker-compose.prod.yml"
 
-                    for file in deploy-app.sh health-check.sh rollback.sh
-                    do
-                        test -f "scripts/${file}"
-                        aws s3 cp "scripts/${file}" "${DESTINATION}/${file}"
+                    for file in deploy-app.sh health-check.sh rollback.sh; do
+                        aws s3 cp "scripts/$file" "${DESTINATION}/$file"
                     done
+
+                    echo "Deployment artifacts uploaded for ${IMAGE_TAG}."
                 '''
             }
         }
@@ -226,7 +268,45 @@ pipeline {
         }
 
         success {
-            echo "Pipeline succeeded for commit ${env.IMAGE_TAG}."
+            script {
+                def appIp = sh(
+                    script: '''
+                        aws ec2 describe-instances \
+                            --region "$AWS_REGION" \
+                            --instance-ids "$APP_INSTANCE_ID" \
+                            --query 'Reservations[0].Instances[0].PublicIpAddress' \
+                            --output text
+                    ''',
+                    returnStdout: true
+                ).trim()
+
+                if (!appIp || appIp == 'None') {
+                    error('Deployment finished, but AWS did not return a public IP for the application instance.')
+                }
+
+                echo """
+========================================================
+          TODO SUMMARY ASSISTANT - DEPLOYED
+========================================================
+
+Application:
+http://${appIp}/
+
+Grafana:
+http://${appIp}:3000/
+
+Prometheus:
+http://${appIp}:9090/
+
+Commit / Image tag:
+${env.IMAGE_TAG}
+
+========================================================
+Monitoring URLs assume Grafana and Prometheus are running
+on this EC2 instance and their ports are reachable.
+========================================================
+"""
+            }
         }
 
         failure {
