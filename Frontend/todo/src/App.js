@@ -10,9 +10,12 @@ function App() {
   const [editingTodo, setEditingTodo] = useState(null);
   const [notification, setNotification] = useState({ message: '', type: '' });
 
-  useEffect(() => {
-  fetchTodos();
-}, [fetchTodos]);
+  const showNotification = useCallback((message, type) => {
+    setNotification({ message, type });
+    setTimeout(() => {
+      setNotification({ message: '', type: '' });
+    }, 5000);
+  }, []);
 
   const fetchTodos = useCallback(async () => {
     try {
@@ -22,12 +25,16 @@ function App() {
       console.error('Error fetching todos:', error);
       showNotification('Error fetching todos.', 'error');
     }
-  }, []);
+  }, [showNotification]);
+
+  useEffect(() => {
+    fetchTodos();
+  }, [fetchTodos]);
 
   const addTodo = async (todo) => {
     try {
       const response = await todoService.createTodo(todo);
-      setTodos([...todos, response.data]);
+      setTodos((currentTodos) => [...currentTodos, response.data]);
       showNotification('Todo added successfully!', 'success');
     } catch (error) {
       console.error('Error adding todo:', error);
@@ -38,7 +45,9 @@ function App() {
   const updateTodo = async (id, updatedTodo) => {
     try {
       const response = await todoService.updateTodo(id, updatedTodo);
-      setTodos(todos.map((todo) => (todo.id === id ? response.data : todo)));
+      setTodos((currentTodos) =>
+        currentTodos.map((todo) => (todo.id === id ? response.data : todo))
+      );
       showNotification('Todo updated successfully!', 'success');
     } catch (error) {
       console.error('Error updating todo:', error);
@@ -49,7 +58,9 @@ function App() {
   const deleteTodo = async (id) => {
     try {
       await todoService.deleteTodo(id);
-      setTodos(todos.filter((todo) => todo.id !== id));
+      setTodos((currentTodos) =>
+        currentTodos.filter((todo) => todo.id !== id)
+      );
       showNotification('Todo deleted successfully!', 'success');
     } catch (error) {
       console.error('Error deleting todo:', error);
@@ -58,12 +69,16 @@ function App() {
   };
 
   const toggleComplete = async (id, completed) => {
-    const todoToUpdate = todos.find(todo => todo.id === id);
+    const todoToUpdate = todos.find((todo) => todo.id === id);
+
     if (todoToUpdate) {
-      const updatedTodo = { ...todoToUpdate, completed: completed };
+      const updatedTodo = { ...todoToUpdate, completed };
+
       try {
         const response = await todoService.updateTodo(id, updatedTodo);
-        setTodos(todos.map(todo => (todo.id === id ? response.data : todo)));
+        setTodos((currentTodos) =>
+          currentTodos.map((todo) => (todo.id === id ? response.data : todo))
+        );
         showNotification('Todo status updated!', 'success');
       } catch (error) {
         console.error('Error toggling todo completion:', error);
@@ -82,22 +97,31 @@ function App() {
     }
   };
 
-  const showNotification = (message, type) => {
-    setNotification({ message, type });
-    setTimeout(() => {
-      setNotification({ message: '', type: '' });
-    }, 5000); // Hide after 5 seconds
-  };
-
   return (
     <div className="App">
       <h1>Todo Summary Assistant</h1>
-      <Notification message={notification.message} type={notification.type} />
-      <TodoForm addTodo={addTodo} updateTodo={updateTodo} editingTodo={editingTodo} setEditingTodo={setEditingTodo} />
-      <button onClick={summarizeAndSendToSlack} className="summary-button">
-        Summarize Pending Todos & Send to Slack
+      <Notification
+        message={notification.message}
+        type={notification.type}
+      />
+      <TodoForm
+        addTodo={addTodo}
+        updateTodo={updateTodo}
+        editingTodo={editingTodo}
+        setEditingTodo={setEditingTodo}
+      />
+      <button
+        onClick={summarizeAndSendToSlack}
+        className="summary-button"
+      >
+        Summarize Pending Todos &amp; Send to Slack
       </button>
-      <TodoList todos={todos} deleteTodo={deleteTodo} setEditingTodo={setEditingTodo} toggleComplete={toggleComplete} />
+      <TodoList
+        todos={todos}
+        deleteTodo={deleteTodo}
+        setEditingTodo={setEditingTodo}
+        toggleComplete={toggleComplete}
+      />
     </div>
   );
 }
