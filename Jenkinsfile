@@ -138,8 +138,8 @@ pipeline {
             steps {
                 sh '''
                     set -eu
-                    trivy image --config "" --scanners vuln --severity HIGH,CRITICAL --exit-code 0 "$BACKEND_IMAGE"
-                    trivy image --config "" --scanners vuln --severity HIGH,CRITICAL --exit-code 0 "$FRONTEND_IMAGE"
+                    trivy image --config "" --scanners vuln --severity HIGH,CRITICAL --exit-code 0 .
+                    trivy image --config "" --scanners vuln --severity HIGH,CRITICAL --exit-code 0 .
                 '''
             }
         }
