@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect } from 'react';
 import TodoForm from './components/TodoForm';
 import TodoList from './components/TodoList';
 import Notification from './components/Notification';
@@ -11,10 +11,10 @@ function App() {
   const [notification, setNotification] = useState({ message: '', type: '' });
 
   useEffect(() => {
-    fetchTodos();
-  }, []);
+  fetchTodos();
+}, [fetchTodos]);
 
-  const fetchTodos = async () => {
+  const fetchTodos = useCallback(async () => {
     try {
       const response = await todoService.getAllTodos();
       setTodos(response.data);
@@ -22,7 +22,7 @@ function App() {
       console.error('Error fetching todos:', error);
       showNotification('Error fetching todos.', 'error');
     }
-  };
+  }, []);
 
   const addTodo = async (todo) => {
     try {
