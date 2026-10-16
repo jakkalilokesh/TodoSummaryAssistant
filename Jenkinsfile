@@ -198,56 +198,39 @@ pipeline {
             }
         }
 
-        stage('Upload Deployment Files') {
-            steps {
-                sh '''
-                    set -eu
 
-                    # Find the production Compose file instead of assuming
-                    # it exists at the repository root.
-                    COMPOSE_FILE=""
+stage('Upload Deployment Files') {
+    steps {
+        sh '''
+            set -eu
 
-                    for candidate in \
-                        docker-compose.prod.yml \
-                        deploy/docker-compose.prod.yml \
-                        scripts/docker-compose.prod.yml
-                    do
-                        if [ -f "$candidate" ] &&
-                           grep -q 'BACKEND_IMAGE' "$candidate" &&
-                           grep -q 'FRONTEND_IMAGE' "$candidate"; then
-                            COMPOSE_FILE="$candidate"
-                            break
-                        fi
-                    done
+            COMPOSE_FILE="aws/docker-compose.prod.yml"
 
-                    if [ -z "$COMPOSE_FILE" ]; then
-                        echo "ERROR: Production Compose file not found."
-                        find . -maxdepth 5 -type f \
-                            \\( -name 'docker-compose*.yml' -o -name 'compose*.yaml' \\) \
-                            -print
-                        exit 1
-                    fi
-
-                    for file in deploy-app.sh health-check.sh rollback.sh; do
-                        if [ ! -f "scripts/$file" ]; then
-                            echo "ERROR: Missing scripts/$file" >&2
-                            exit 1
-                        fi
-                    done
-
-                    DESTINATION="s3://${ARTIFACT_BUCKET}/releases/${IMAGE_TAG}"
-
-                    aws s3 cp "$COMPOSE_FILE" \
-                        "${DESTINATION}/docker-compose.prod.yml"
-
-                    for file in deploy-app.sh health-check.sh rollback.sh; do
-                        aws s3 cp "scripts/$file" "${DESTINATION}/$file"
-                    done
-
-                    echo "Deployment artifacts uploaded for ${IMAGE_TAG}."
-                '''
+            test -f "$COMPOSE_FILE" || {
+                echo "ERROR: $COMPOSE_FILE not found."
+                exit 1
             }
-        }
+
+            for file in deploy-app.sh health-check.sh rollback.sh; do
+                test -f "scripts/$file" || {
+                    echo "ERROR: scripts/$file not found."
+                    exit 1
+                }
+            done
+
+            DESTINATION="s3://${ARTIFACT_BUCKET}/releases/${IMAGE_TAG}"
+
+            aws s3 cp "$COMPOSE_FILE" \
+                "${DESTINATION}/docker-compose.prod.yml"
+
+            for file in deploy-app.sh health-check.sh rollback.sh; do
+                aws s3 cp "scripts/$file" "${DESTINATION}/$file"
+            done
+
+            echo "Deployment files uploaded successfully."
+        '''
+    }
+}
 
         stage('Deploy through SSM') {
             steps {
