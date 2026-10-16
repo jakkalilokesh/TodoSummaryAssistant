@@ -36,7 +36,7 @@ pipeline {
                     set -eu
 
                     for name in \
-                     AWS_REGION ARTIFACT_BUCKET BACKEND_REPO FRONTEND_REPO
+                     AWS_REGION ARTIFACT_BUCKET BACKEND_REPO FRONTEND_REPO \
                     do
                       eval 'value=${'${name}':-}'
                       if [ -z "$value" ]; then
