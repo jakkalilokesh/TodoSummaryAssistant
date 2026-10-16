@@ -36,8 +36,7 @@ pipeline {
                     set -eu
 
                     for name in \
-                      AWS_REGION ARTIFACT_BUCKET BACKEND_REPO FRONTEND_REPO \
-                      SECRET_ARN CORS_ALLOWED_ORIGINS TARGET_TAG_KEY TARGET_TAG_VALUE
+                     AWS_REGION ARTIFACT_BUCKET BACKEND_REPO FRONTEND_REPO
                     do
                       eval 'value=${'${name}':-}'
                       if [ -z "$value" ]; then
