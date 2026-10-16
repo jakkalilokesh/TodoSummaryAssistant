@@ -38,28 +38,48 @@ pipeline {
 
         stage('Plan') {
             steps {
-                dir('aws/iac') {
-                    sh 'terraform plan -out=tfplan'
+                withCredentials([
+                    string(
+                        credentialsId: 'todo-db-password',
+                        variable: 'TF_VAR_db_password'
+                    )
+                ]) {
+                    dir('aws/iac') {
+                        sh 'terraform plan -out=tfplan'
+                    }
                 }
             }
         }
 
         stage('Approval') {
             steps {
-                input message: 'Approve these Terraform changes?'
+                input message: 'Review the Terraform plan and approve these AWS changes?'
             }
         }
 
         stage('Apply') {
             steps {
-                dir('aws/iac') {
-                    sh 'terraform apply -auto-approve tfplan'
+                withCredentials([
+                    string(
+                        credentialsId: 'todo-db-password',
+                        variable: 'TF_VAR_db_password'
+                    )
+                ]) {
+                    dir('aws/iac') {
+                        sh 'terraform apply -auto-approve tfplan'
+                    }
                 }
             }
         }
     }
 
     post {
+        always {
+            dir('aws/iac') {
+                sh 'rm -f tfplan'
+            }
+        }
+
         success {
             echo 'Infrastructure deployment completed.'
         }
