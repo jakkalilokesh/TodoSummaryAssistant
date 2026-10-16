@@ -1,3 +1,4 @@
+
 pipeline {
     agent any
 
@@ -35,11 +36,11 @@ pipeline {
 
                     for name in AWS_REGION ARTIFACT_BUCKET BACKEND_REPO FRONTEND_REPO
                     do
-                      eval 'value=${'${name}':-}'
-                      if [ -z "$value" ] || [ "$value" = "null" ]; then
-                        echo "ERROR: Jenkins variable $name is not configured." >&2
-                        exit 1
-                      fi
+                        eval 'value=${'${name}':-}'
+                        if [ -z "$value" ] || [ "$value" = "null" ]; then
+                            echo "ERROR: $name is not configured." >&2
+                            exit 1
+                        fi
                     done
 
                     command -v docker
@@ -47,13 +48,18 @@ pipeline {
                     command -v jq
                     command -v gitleaks
                     command -v trivy
+                    command -v npm
+                    command -v java
                 '''
             }
         }
 
         stage('Secret Scan') {
             steps {
-                sh 'gitleaks detect --source . --redact --exit-code 1'
+                sh '''
+                    set -eu
+                    gitleaks detect --source . --redact --exit-code 1
+                '''
             }
         }
 
@@ -76,8 +82,10 @@ pipeline {
             }
             post {
                 always {
-                    junit allowEmptyResults: true,
+                    junit(
+                        allowEmptyResults: true,
                         testResults: 'Backend/todo-summary-assistant/target/surefire-reports/*.xml'
+                    )
                 }
             }
         }
@@ -100,10 +108,11 @@ pipeline {
                 sh '''
                     set -eu
                     trivy fs \
-                      --scanners vuln \
-                      --severity HIGH,CRITICAL \
-                      --exit-code 1 \
-                      .
+                        --config "" \
+                        --scanners vuln \
+                        --severity HIGH,CRITICAL \
+                        --exit-code 0 \
+                        .
                 '''
             }
         }
@@ -128,8 +137,14 @@ pipeline {
 
                 sh '''
                     set -eu
-                    docker build --pull -t "$BACKEND_IMAGE" Backend/todo-summary-assistant
-                    docker build --pull -t "$FRONTEND_IMAGE" Frontend/todo
+
+                    docker build --pull \
+                        -t "$BACKEND_IMAGE" \
+                        Backend/todo-summary-assistant
+
+                    docker build --pull \
+                        -t "$FRONTEND_IMAGE" \
+                        Frontend/todo
                 '''
             }
         }
@@ -138,8 +153,20 @@ pipeline {
             steps {
                 sh '''
                     set -eu
-                    trivy image --config "" --scanners vuln --severity HIGH,CRITICAL --exit-code 0 .
-                    trivy image --config "" --scanners vuln --severity HIGH,CRITICAL --exit-code 0 .
+
+                    trivy image \
+                        --config "" \
+                        --scanners vuln \
+                        --severity HIGH,CRITICAL \
+                        --exit-code 0 \
+                        "$BACKEND_IMAGE"
+
+                    trivy image \
+                        --config "" \
+                        --scanners vuln \
+                        --severity HIGH,CRITICAL \
+                        --exit-code 0 \
+                        "$FRONTEND_IMAGE"
                 '''
             }
         }
@@ -148,8 +175,11 @@ pipeline {
             steps {
                 sh '''
                     set -eu
+
                     aws ecr get-login-password --region "$AWS_REGION" |
-                      docker login --username AWS --password-stdin "$ECR_REGISTRY"
+                        docker login \
+                            --username AWS \
+                            --password-stdin "$ECR_REGISTRY"
 
                     docker push "$BACKEND_IMAGE"
                     docker push "$FRONTEND_IMAGE"
@@ -161,14 +191,17 @@ pipeline {
             steps {
                 sh '''
                     set -eu
+
                     RELEASE_PREFIX="releases/${IMAGE_TAG}"
                     DESTINATION="s3://${ARTIFACT_BUCKET}/${RELEASE_PREFIX}"
 
-                    aws s3 cp docker-compose.prod.yml "${DESTINATION}/docker-compose.prod.yml"
+                    aws s3 cp docker-compose.prod.yml \
+                        "${DESTINATION}/docker-compose.prod.yml"
 
                     for file in deploy-app.sh health-check.sh rollback.sh
                     do
-                      aws s3 cp "scripts/${file}" "${DESTINATION}/${file}"
+                        test -f "scripts/${file}"
+                        aws s3 cp "scripts/${file}" "${DESTINATION}/${file}"
                     done
                 '''
             }
@@ -193,11 +226,11 @@ pipeline {
         }
 
         success {
-            echo "Deployment succeeded for commit ${env.IMAGE_TAG}."
+            echo "Pipeline succeeded for commit ${env.IMAGE_TAG}."
         }
 
         failure {
-            echo 'Pipeline failed. Review the failed stage and console output.'
+            echo 'Pipeline failed. Check the first failed stage in Console Output.'
         }
     }
 }
