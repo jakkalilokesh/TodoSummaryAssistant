@@ -1,39 +1,29 @@
 # Failure and Rollback
 
-## 1. Faulty Version Is Deployed
+## 1. A faulty version is deployed
 
-If a new application version fails after deployment, I will check the Jenkins logs, application logs and health-check results. I will redeploy the previous working Docker image using its version tag. After rollback, I will verify the application health and database connectivity.
+The deployment uses a commit-specific image tag. If health checks fail, the deployment script attempts to restore the previous known-good image versions. Investigate logs and tests before redeploying.
 
-## 2. Application Crashes After Deployment
+## 2. The application crashes after deployment
 
-Docker logs and container status will help identify the cause. I will check the health endpoint, environment variables, database connectivity and resource usage. If the issue cannot be fixed quickly, I will roll back to the previous working image.
+Docker restart policies attempt to restart crashed containers. Prometheus should alert when the backend target is unavailable. Review container logs, health status, configuration, database connectivity, and resource usage.
 
-## 3. Jenkins Is Unavailable
+## 3. Jenkins becomes unavailable
 
-The application already running on EC2 will continue running independently of Jenkins. For an urgent recovery, I can manually deploy a previously tested image from the container registry using an authorized access method. Automated deployment resumes when Jenkins is restored.
+The application continues running independently of Jenkins. A release can be performed through an approved, documented operational procedure using a known image tag and the same deployment mechanism, provided the necessary AWS access and artifacts remain available. Record the manual release and reconcile it with Jenkins afterward.
 
-## 4. Secrets Are Leaked
+## 4. Secrets are leaked
 
-I will revoke or rotate the exposed credentials immediately, remove the secret from the source where possible, and review Git history and relevant logs. I will check for unauthorized access and move credentials into Jenkins Credentials or AWS Secrets Manager/SSM Parameter Store. Removing a secret from the latest commit alone does not invalidate it.
+Revoke or rotate the affected secret immediately. Remove the secret from active configuration, inspect logs and repository history, review access logs, and redeploy using the rotated value. Removing a secret from the latest commit alone is insufficient if it exists in Git history.
 
-## 5. EC2 Instance Fails
+## 5. The EC2 instance fails
 
-I will check the instance status and AWS monitoring information. If recovery is not possible, I will provision a replacement instance, install or configure Docker, restore the required configuration, and deploy the last known-good image. I will verify connectivity to RDS and application health.
+Recover or replace the instance using the documented infrastructure configuration. Attach the correct instance role, verify SSM registration, networking, and security groups, then deploy the last known-good image versions. Confirm RDS connectivity and application health.
 
-Terraform can help recreate the infrastructure consistently. Deployment configuration and secrets must be stored separately from the failed instance.
+## 6. RDS becomes unavailable
 
-## 6. RDS Database Becomes Unavailable
+The application may fail requests that depend on the database. Check RDS events, connectivity, security groups, and database health. Restore from a suitable backup or snapshot if necessary. Multi-AZ can improve availability but must be configured and may incur additional cost. Validate data recovery and application connectivity before reopening traffic.
 
-The application may fail to read or write todo data while RDS is unavailable. I will check RDS status, connectivity, security groups and database logs. I will restore service by resolving the connection or database issue, or recover from an appropriate RDS backup or snapshot if necessary.
+## Limitations
 
-Automated backups should be enabled. Multi-AZ deployment can improve database availability, but its cost and configuration must be considered for this assessment. I will verify database recovery and application functionality before declaring the incident resolved.
-
-## Recovery Verification
-
-After any recovery or rollback, I will:
-
-1. Check that the backend and frontend are reachable.
-2. Verify backend connectivity to RDS.
-3. Test key todo operations.
-4. Check Prometheus and Grafana for service health and errors.
-5. Record the cause, recovery action and any follow-up improvements.
+Container rollback does not automatically reverse database schema changes. Database changes should be backward-compatible, and backup restoration procedures should be tested separately.

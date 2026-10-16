@@ -1,23 +1,39 @@
-# Secrets
+# Secrets and environment files
 .env
 .env.*
 !.env.example
+*.pem
+*.key
 
-# Terraform secrets and state
+# Terraform state and local configuration
+**/.terraform/
+**/terraform.tfstate
+**/terraform.tfstate.*
 **/terraform.tfvars
 **/terraform.tfvars.json
-**/*.tfstate
-**/*.tfstate.*
-**/.terraform/
-**/*.tfplan
+**/tfplan
 crash.log
 
-# Build files
+# Java / Maven
 **/target/
+*.class
+
+# Node / React
 **/node_modules/
 **/build/
 **/dist/
+npm-debug.log*
 
-# IDE files
+# Test and security scan reports
+**/surefire-reports/
+**/dependency-check-report.html
+**/dependency-check-report.json
+
+# IDE and operating system
 .vscode/
 .idea/
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log

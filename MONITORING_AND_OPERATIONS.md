@@ -1,59 +1,60 @@
 # Monitoring and Operations
 
-## 1. Monitoring Overview
+## Metrics
 
-The application will run on AWS EC2 using Docker containers, with MySQL hosted on AWS RDS. Prometheus will collect metrics, and Grafana will display dashboards and alerts.
+### Application
+- Request rate: identifies changes in traffic.
+- HTTP error rate: highlights failed requests.
+- Request latency: shows slow responses.
+- Backend availability: detects outages.
 
-## 2. Metrics to Monitor
+### Host
+- CPU usage: identifies sustained compute pressure.
+- Memory usage: detects resource exhaustion.
+- Disk usage: helps prevent failures caused by full storage.
+- Uptime and restarts: indicate instability or unexpected recovery.
 
-| Metric | Purpose |
-|---|---|
-| Request rate | Understand application traffic |
-| Error rate | Identify failed requests |
-| Response latency | Detect slow API responses |
-| CPU usage | Identify high processor usage on EC2 |
-| Memory usage | Detect memory pressure |
-| Disk usage | Prevent the server from running out of space |
-| Container uptime | Check whether application containers are running |
-| Database availability | Identify database connection problems |
+### Containers
+- Container health and restart count help identify crashes and failed deployments.
 
-Node Exporter will collect host metrics. Spring Boot Actuator and Micrometer will expose backend metrics to Prometheus. Container metrics can be added using cAdvisor.
+## Logs
 
-## 3. Important Logs
+Review:
+- Application logs and stack traces.
+- Container startup and health-check failures.
+- Jenkins build and deployment logs.
+- SSM command output.
+- RDS events and relevant AWS infrastructure events.
 
-- **Backend logs:** application errors, API failures and database connection errors.
-- **Frontend and web server logs:** HTTP errors and requests that fail.
-- **Docker logs:** container startup failures and restarts.
-- **Jenkins logs:** failed builds, security scan results and deployment errors.
-- **RDS logs:** database errors and connection issues.
+Never print credentials, tokens, database passwords, or secret values in logs.
 
-Logs should be reviewed during incidents and retained according to the project's needs.
+## Alerts
 
-## 4. Alerts
+The assessment requires at least two meaningful alerts. The included rules cover:
+- Backend target unavailable for two minutes.
+- Host CPU usage above 85 percent for ten minutes.
 
-The initial Prometheus alert rules cover:
+Configure Alertmanager and a notification receiver to deliver alerts. Add additional alerts only when the underlying metrics are available and actionable.
 
-- **BackendDown:** triggers when Prometheus cannot scrape the backend for one minute.
-- **HighCPUUsage:** triggers when host CPU usage remains above 80% for five minutes.
+## Avoiding alert noise
 
-Grafana alerting or an alert notification service must be configured to deliver notifications.
+Use sustained thresholds rather than alerting on a single transient failure. Avoid alerts for normal short-lived CPU spikes, individual successful deployments, or expected container restarts during a release.
 
-## 5. Detecting Problems Early
+## Early detection
 
-1. Review Grafana dashboards for traffic, errors and latency.
-2. Investigate alerts when service availability or resource usage crosses a threshold.
-3. Check backend, Docker and database logs to identify the cause.
-4. Verify the application's health after each deployment.
-5. Review Jenkins test and security scan results before allowing deployment.
+Use a combination of:
+- Regular Prometheus scraping.
+- Grafana dashboards.
+- Health checks after deployment.
+- Container logs and restart information.
+- RDS monitoring and backup status.
+- A documented response and rollback procedure.
 
-## 6. Operational Practices
+## Operational checks
 
-- Keep secrets in Jenkins credentials or AWS secret-management services.
-- Restrict database access to the EC2 security group.
-- Use versioned Docker images so a previous release can be redeployed.
-- Keep RDS backups enabled and document recovery procedures.
-- Remove unused AWS resources after assessment testing to avoid unnecessary charges.
-
-## 7. Current Limitations
-
-The Prometheus configuration depends on the backend exposing `/actuator/prometheus` and Node Exporter being deployed. These components must be configured and tested before the dashboards and alerts can provide reliable production monitoring.
+After deployment:
+1. Confirm both containers are running and healthy.
+2. Verify the backend can connect to RDS.
+3. Confirm Prometheus can scrape the application and host metrics.
+4. Check Grafana panels for populated metrics.
+5. Review alerts and deployment logs.

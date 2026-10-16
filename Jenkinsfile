@@ -1,96 +1,226 @@
-
 pipeline {
     agent any
 
     options {
         timestamps()
         disableConcurrentBuilds()
+        skipDefaultCheckout(true)
+        buildDiscarder(logRotator(numToKeepStr: '20'))
     }
 
     environment {
-        AWS_REGION = 'ap-south-1'
-        BACKEND_IMAGE = 'todo-backend'
-        FRONTEND_IMAGE = 'todo-frontend'
+        // Set these as Jenkins job/folder environment variables.
+        // Do not put credential values or environment-specific addresses here.
+        AWS_REGION = "${env.AWS_REGION}"
+        ARTIFACT_BUCKET = "${env.ARTIFACT_BUCKET}"
+        BACKEND_REPO = "${env.BACKEND_REPO}"
+        FRONTEND_REPO = "${env.FRONTEND_REPO}"
+        SECRET_ARN = "${env.SECRET_ARN}"
+        CORS_ALLOWED_ORIGINS = "${env.CORS_ALLOWED_ORIGINS}"
+        TARGET_TAG_KEY = "${env.TARGET_TAG_KEY}"
+        TARGET_TAG_VALUE = "${env.TARGET_TAG_VALUE}"
     }
 
     stages {
         stage('Checkout') {
             steps {
                 checkout scm
+                script {
+                    env.IMAGE_TAG = sh(
+                        script: 'git rev-parse --short=12 HEAD',
+                        returnStdout: true
+                    ).trim()
+                }
+            }
+        }
+
+        stage('Validate Configuration') {
+            steps {
+                sh '''
+                    set -eu
+
+                    for name in \
+                      AWS_REGION ARTIFACT_BUCKET BACKEND_REPO FRONTEND_REPO \
+                      SECRET_ARN CORS_ALLOWED_ORIGINS TARGET_TAG_KEY TARGET_TAG_VALUE
+                    do
+                      eval 'value=${'${name}':-}'
+                      if [ -z "$value" ]; then
+                        echo "ERROR: Jenkins variable $name is not configured." >&2
+                        exit 1
+                      fi
+                    done
+
+                    command -v docker
+                    command -v aws
+                    command -v jq
+                    command -v gitleaks
+                    command -v trivy
+                '''
             }
         }
 
         stage('Secret Scan') {
             steps {
-                bat 'gitleaks detect --source . --redact'
+                sh 'gitleaks detect --source . --redact --exit-code 1'
             }
         }
 
-        stage('Test') {
+        stage('Backend Tests') {
             steps {
                 dir('Backend/todo-summary-assistant') {
-                    bat 'mvnw.cmd test'
+                    sh '''
+                        set -eu
+                        chmod +x mvnw
+                        ./mvnw --batch-mode test
+                    '''
                 }
+            }
+            post {
+                always {
+                    junit(
+                        testResults: 'Backend/todo-summary-assistant/target/surefire-reports/*.xml',
+                        allowEmptyResults: true
+                    )
+                }
+            }
+        }
+
+        stage('Frontend Tests and Build') {
+            steps {
                 dir('Frontend/todo') {
-                    bat 'npm ci'
-                    bat 'npm test -- --watchAll=false'
+                    sh '''
+                        set -eu
+                        npm ci
+                        CI=true npm test -- --watchAll=false
+                        npm run build
+                    '''
                 }
             }
         }
 
         stage('Dependency Scan') {
             steps {
-                dependencyCheck(
-                    odcInstallation: 'OWASP-Dependency-Check'
-                )
+                sh '''
+                    set -eu
+                    trivy fs \
+                      --scanners vuln \
+                      --severity HIGH,CRITICAL \
+                      --exit-code 1 \
+                      .
+                '''
             }
         }
 
         stage('Build Images') {
             steps {
                 script {
-                    env.IMAGE_TAG = env.GIT_COMMIT.take(7)
+                    env.AWS_ACCOUNT_ID = sh(
+                        script: 'aws sts get-caller-identity --query Account --output text',
+                        returnStdout: true
+                    ).trim()
+
+                    env.ECR_REGISTRY =
+                        "${env.AWS_ACCOUNT_ID}.dkr.ecr.${env.AWS_REGION}.amazonaws.com"
+
+                    env.BACKEND_IMAGE =
+                        "${env.ECR_REGISTRY}/${env.BACKEND_REPO}:${env.IMAGE_TAG}"
+
+                    env.FRONTEND_IMAGE =
+                        "${env.ECR_REGISTRY}/${env.FRONTEND_REPO}:${env.IMAGE_TAG}"
                 }
-                bat 'docker build -t %BACKEND_IMAGE%:%IMAGE_TAG% Backend/todo-summary-assistant'
-                bat 'docker build -t %FRONTEND_IMAGE%:%IMAGE_TAG% Frontend/todo'
+
+                sh '''
+                    set -eu
+                    docker build \
+                      --pull \
+                      -t "$BACKEND_IMAGE" \
+                      Backend/todo-summary-assistant
+
+                    docker build \
+                      --pull \
+                      -t "$FRONTEND_IMAGE" \
+                      Frontend/todo
+                '''
             }
         }
 
         stage('Image Scan') {
             steps {
-                bat 'trivy image --severity HIGH,CRITICAL --exit-code 1 %BACKEND_IMAGE%:%IMAGE_TAG%'
-                bat 'trivy image --severity HIGH,CRITICAL --exit-code 1 %FRONTEND_IMAGE%:%IMAGE_TAG%'
+                sh '''
+                    set -eu
+                    trivy image --severity HIGH,CRITICAL \
+                      --exit-code 1 "$BACKEND_IMAGE"
+
+                    trivy image --severity HIGH,CRITICAL \
+                      --exit-code 1 "$FRONTEND_IMAGE"
+                '''
             }
         }
 
-        stage('Push to ECR') {
+        stage('Push Images to ECR') {
             steps {
-                echo 'Configure ECR login and push after creating the AWS registry.'
+                sh '''
+                    set -eu
+
+                    aws ecr get-login-password --region "$AWS_REGION" |
+                      docker login \
+                        --username AWS \
+                        --password-stdin "$ECR_REGISTRY"
+
+                    docker push "$BACKEND_IMAGE"
+                    docker push "$FRONTEND_IMAGE"
+                '''
             }
         }
 
-        stage('Deploy to EC2') {
+        stage('Upload Deployment Files') {
             steps {
-                echo 'Configure automated EC2 deployment after AWS setup.'
+                sh '''
+                    set -eu
+
+                    RELEASE_PREFIX="releases/${IMAGE_TAG}"
+                    DESTINATION="s3://${ARTIFACT_BUCKET}/${RELEASE_PREFIX}"
+
+                    aws s3 cp docker-compose.prod.yml \
+                      "${DESTINATION}/docker-compose.prod.yml"
+
+                    for file in \
+                      setup-app-server.sh \
+                      deploy-app.sh \
+                      health-check.sh \
+                      rollback.sh
+                    do
+                      aws s3 cp "scripts/${file}" \
+                        "${DESTINATION}/${file}"
+                    done
+                '''
             }
         }
 
-        stage('Health Check') {
+        stage('Deploy through SSM') {
             steps {
-                echo 'Add the deployed application URL after EC2 deployment is configured.'
+                sh '''
+                    set -eu
+                    bash scripts/trigger-deploy.sh
+                '''
             }
         }
     }
 
     post {
         always {
-            emailext(
-                to: 'YOUR_EMAIL@example.com',
-                subject: "${currentBuild.currentResult}: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
-                body: """Build status: ${currentBuild.currentResult}
-Build URL: ${env.BUILD_URL}
-Commit: ${env.GIT_COMMIT ?: 'Not available'}"""
-            )
+            sh '''
+                docker logout "${ECR_REGISTRY:-invalid}" >/dev/null 2>&1 || true
+                docker image prune -f || true
+            '''
+        }
+
+        success {
+            echo "Deployment succeeded for commit ${env.IMAGE_TAG}."
+        }
+
+        failure {
+            echo 'Pipeline failed. Review the failed stage and console output.'
         }
     }
 }

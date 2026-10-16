@@ -34,3 +34,8 @@ variable "db_password" {
   type        = string
   sensitive   = true
 }
+
+variable "final_snapshot_identifier" {
+  description = "Unique identifier for the final RDS snapshot"
+  type        = string
+}
