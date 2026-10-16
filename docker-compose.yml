@@ -1,0 +1,81 @@
+
+services:
+  backend:
+    build:
+      context: ./Backend/todo-summary-assistant
+    image: todo-backend:local
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      SPRING_DATASOURCE_URL: ${DB_URL}
+      SPRING_DATASOURCE_USERNAME: ${DB_USERNAME}
+      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD}
+      COHERE_API_KEY: ${COHERE_API_KEY:-}
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
+    expose:
+      - "8080"
+    networks:
+      - app-network
+      - monitoring-network
+
+  frontend:
+    build:
+      context: ./Frontend/todo
+    image: todo-frontend:local
+    restart: unless-stopped
+    ports:
+      - "3000:8080"
+    depends_on:
+      - backend
+    networks:
+      - app-network
+
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    restart: unless-stopped
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/alert-rules.yml:/etc/prometheus/alert-rules.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "127.0.0.1:9090:9090"
+    networks:
+      - monitoring-network
+
+  grafana:
+    image: grafana/grafana-oss:12.1.1
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:?Set GRAFANA_PASSWORD in .env}
+    ports:
+      - "127.0.0.1:3001:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    networks:
+      - monitoring-network
+
+  
+  node-exporter:
+    image: prom/node-exporter:v1.9.1
+    restart: unless-stopped
+    expose:
+      - "9100"
+    networks:
+      - monitoring-network
+
+
+networks:
+  app-network:
+  monitoring-network:
+    external: true
+    name: todo-monitoring
+
+volumes:
+  prometheus-data:
+  grafana-data:

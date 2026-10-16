@@ -1,0 +1,40 @@
+
+services:
+  backend:
+    image: ${BACKEND_IMAGE:?Backend image is required}
+    container_name: todo-backend
+    restart: unless-stopped
+
+    env_file:
+      - /opt/todo-assistant/app.env
+
+    environment:
+      SPRING_DATASOURCE_URL: ${DB_URL:?DB_URL is required}
+      SPRING_DATASOURCE_USERNAME: ${DB_USERNAME:?DB_USERNAME is required}
+      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+      COHERE_API_KEY: ${COHERE_API_KEY:-}
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
+
+    expose:
+      - "8080"
+
+    networks:
+      - app-network
+
+  frontend:
+    image: ${FRONTEND_IMAGE:?Frontend image is required}
+    container_name: todo-frontend
+    restart: unless-stopped
+
+    ports:
+      - "80:8080"
+
+    depends_on:
+      - backend
+
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge

@@ -1,0 +1,23 @@
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Terraform secrets and state
+**/terraform.tfvars
+**/terraform.tfvars.json
+**/*.tfstate
+**/*.tfstate.*
+**/.terraform/
+**/*.tfplan
+crash.log
+
+# Build files
+**/target/
+**/node_modules/
+**/build/
+**/dist/
+
+# IDE files
+.vscode/
+.idea/

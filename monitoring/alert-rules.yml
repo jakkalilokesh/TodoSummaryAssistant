@@ -1,0 +1,21 @@
+
+groups:
+  - name: todo-app-alerts
+    rules:
+      - alert: BackendDown
+        expr: up{job="todo-backend"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Todo backend is down"
+          description: "Prometheus cannot reach the backend for 1 minute."
+
+      - alert: HighCPUUsage
+        expr: 100 - (avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High EC2 CPU usage"
+          description: "EC2 CPU usage has remained above 80% for 5 minutes."
