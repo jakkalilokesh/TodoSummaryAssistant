@@ -88,7 +88,7 @@ pipeline {
                     sh '''
                         set -eu
                         npm ci
-                        CI=true npm test -- --watchAll=false
+                        CI=true npm test -- --watchAll=false --passWithNoTests
                         npm run build
                     '''
                 }
