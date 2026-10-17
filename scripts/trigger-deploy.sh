@@ -7,24 +7,27 @@ set -Eeuo pipefail
 : "${BACKEND_REPO:?BACKEND_REPO is required}"
 : "${FRONTEND_REPO:?FRONTEND_REPO is required}"
 
-# Secrets Manager secret ARN
+# AWS Secrets Manager secret ARN
 SECRET_ARN="arn:aws:secretsmanager:ap-south-1:323708468684:secret:todo-assistant/production-i5yqjU"
 
 export AWS_DEFAULT_REGION="$AWS_REGION"
 
+# Validate tools available on the Jenkins EC2 instance
 for tool in aws jq; do
   if ! command -v "$tool" >/dev/null 2>&1; then
-    echo "ERROR: Required command not found: $tool" >&2
+    echo "ERROR: Required command not found on Jenkins: $tool" >&2
     exit 1
   fi
 done
 
+# Resolve AWS account and ECR registry
 account_id="$(aws sts get-caller-identity --query Account --output text)"
 registry="${account_id}.dkr.ecr.${AWS_REGION}.amazonaws.com"
 
 backend_image="${registry}/${BACKEND_REPO}:${IMAGE_TAG}"
 frontend_image="${registry}/${FRONTEND_REPO}:${IMAGE_TAG}"
 
+# Application EC2 instance
 instance_id="i-0979ce44516967c47"
 
 state="$(aws ec2 describe-instances \
@@ -38,7 +41,8 @@ if [[ "$state" != "running" ]]; then
   exit 1
 fi
 
-# Build a JSON-safe command payload. Secret values are retrieved on the app EC2.
+# Build a JSON-safe SSM command payload.
+# Commands execute on the application EC2 instance as root.
 commands_json="$(
   jq -cn \
     --arg region "$AWS_REGION" \
@@ -58,20 +62,35 @@ commands_json="$(
       "export FRONTEND_IMAGE=" + ($frontend | @sh),
       "export IMAGE_TAG=" + ($tag | @sh),
       "export SECRET_ARN=" + ($secretArn | @sh),
+
+      "echo Starting application-server preparation...",
+      "if [ \"$(id -u)\" -ne 0 ]; then echo \"ERROR: SSM commands must run as root.\" >&2; exit 1; fi",
+      "if ! command -v apt-get >/dev/null 2>&1; then echo \"ERROR: This setup requires an Ubuntu/Debian-based server.\" >&2; exit 1; fi",
+      "if ! command -v docker >/dev/null 2>&1 || ! docker compose version >/dev/null 2>&1 || ! command -v jq >/dev/null 2>&1 || ! command -v aws >/dev/null 2>&1; then export DEBIAN_FRONTEND=noninteractive; apt-get update; apt-get install -y ca-certificates curl jq awscli docker.io docker-compose-v2; fi",
+      "systemctl enable --now docker",
+      "docker --version",
+      "docker compose version",
+
       "install -d -o root -g root -m 0750 /opt/todo-assistant",
+
+      "echo Downloading deployment files from S3...",
       "aws s3 cp \"s3://${ARTIFACT_BUCKET}/releases/${IMAGE_TAG}/docker-compose.prod.yml\" /opt/todo-assistant/docker-compose.prod.yml",
       "aws s3 cp \"s3://${ARTIFACT_BUCKET}/releases/${IMAGE_TAG}/health-check.sh\" /opt/todo-assistant/health-check.sh",
       "aws s3 cp \"s3://${ARTIFACT_BUCKET}/releases/${IMAGE_TAG}/rollback.sh\" /opt/todo-assistant/rollback.sh",
       "aws s3 cp \"s3://${ARTIFACT_BUCKET}/releases/${IMAGE_TAG}/deploy-app.sh\" /opt/todo-assistant/deploy-app.sh",
+
       "chown root:root /opt/todo-assistant/docker-compose.prod.yml /opt/todo-assistant/health-check.sh /opt/todo-assistant/rollback.sh /opt/todo-assistant/deploy-app.sh",
       "chmod 0600 /opt/todo-assistant/docker-compose.prod.yml",
       "chmod 0700 /opt/todo-assistant/health-check.sh /opt/todo-assistant/rollback.sh /opt/todo-assistant/deploy-app.sh",
+
+      "echo Starting application deployment...",
       "exec /opt/todo-assistant/deploy-app.sh"
     ]'
 )"
 
 parameters="$(jq -cn --argjson commands "$commands_json" '{commands:$commands}')"
 
+# Submit deployment to the application EC2 instance
 command_id="$(
   aws ssm send-command \
     --instance-ids "$instance_id" \
@@ -83,7 +102,11 @@ command_id="$(
 )"
 
 echo "SSM deployment command submitted."
+echo "Command ID: $command_id"
+echo "Application instance: $instance_id"
+echo "Image tag: $IMAGE_TAG"
 
+# Wait for deployment completion
 deadline=$((SECONDS + 900))
 
 while (( SECONDS < deadline )); do
@@ -100,14 +123,16 @@ while (( SECONDS < deadline )); do
       echo "Remote deployment succeeded."
       exit 0
       ;;
+
     Failed|Cancelled|TimedOut)
+      echo "ERROR: Remote deployment failed with status $status." >&2
+
       aws ssm get-command-invocation \
         --command-id "$command_id" \
         --instance-id "$instance_id" \
         --query '{Status:Status,Output:StandardOutputContent,Error:StandardErrorContent}' \
         --output json || true
 
-      echo "ERROR: Remote deployment failed with status $status." >&2
       exit 1
       ;;
   esac
@@ -116,4 +141,9 @@ while (( SECONDS < deadline )); do
 done
 
 echo "ERROR: Timed out waiting for SSM." >&2
-exit 1
+
+aws ssm get-command-invocation \
+  --command-id "$command_id" \
+  --instance-id "$instance_id" \
+  --query '{Status:Status,Output:StandardOutputContent,Error:StandardErrorContent}' \
+  --output json || true

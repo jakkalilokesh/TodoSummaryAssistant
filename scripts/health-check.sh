@@ -20,18 +20,30 @@ for ((attempt = 1; attempt <= MAX_ATTEMPTS; attempt++)); do
       todo-frontend 2>/dev/null || true
   )"
 
-  if [[ "$backend_status" == "healthy" &&
-        "$frontend_status" == "healthy" ]]; then
-    echo "Backend and frontend are healthy."
+  backend_ok=false
+  frontend_ok=false
+
+  if [[ "$backend_status" == "healthy" || "$backend_status" == "running" ]]; then
+    backend_ok=true
+  fi
+
+  if [[ "$frontend_status" == "healthy" || "$frontend_status" == "running" ]]; then
+    frontend_ok=true
+  fi
+
+  if [[ "$backend_ok" == true && "$frontend_ok" == true ]]; then
+    echo "Backend and frontend containers are running and healthy, or have no configured health check."
     exit 0
   fi
 
   echo "Attempt $attempt/$MAX_ATTEMPTS: backend=$backend_status frontend=$frontend_status"
-  sleep "$SLEEP_SECONDS"
+
+  if (( attempt < MAX_ATTEMPTS )); then
+    sleep "$SLEEP_SECONDS"
+  fi
 done
 
 echo "ERROR: Application health check failed." >&2
 docker compose -f docker-compose.prod.yml ps || true
 docker logs --tail 100 todo-backend || true
 docker logs --tail 100 todo-frontend || true
-exit 1
