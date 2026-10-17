@@ -16,6 +16,7 @@ backend_image="${registry}/${BACKEND_REPO}:${IMAGE_TAG}"
 frontend_image="${registry}/${FRONTEND_REPO}:${IMAGE_TAG}"
 
 instance_id="i-0979ce44516967c47"
+instance_ids="$instance_id"
 
 state="$(aws ec2 describe-instances \
   --instance-ids "$instance_id" \
