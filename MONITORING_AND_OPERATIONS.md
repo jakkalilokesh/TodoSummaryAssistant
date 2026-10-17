@@ -1,60 +1,130 @@
 # Monitoring and Operations
 
-## Metrics
+## Overview
 
-### Application
-- Request rate: identifies changes in traffic.
-- HTTP error rate: highlights failed requests.
-- Request latency: shows slow responses.
-- Backend availability: detects outages.
+Monitoring helps identify problems before they cause a major interruption. For TodoSummaryAssistant, the important areas are application availability, container health, server resources, and database connectivity.
 
-### Host
-- CPU usage: identifies sustained compute pressure.
-- Memory usage: detects resource exhaustion.
-- Disk usage: helps prevent failures caused by full storage.
-- Uptime and restarts: indicate instability or unexpected recovery.
+The project is intended to use Prometheus for collecting metrics and Grafana for displaying dashboards and alerts.
 
-### Containers
-- Container health and restart count help identify crashes and failed deployments.
+## 1. What Metrics Should Be Monitored?
 
-## Logs
+### Application Metrics
 
-Review:
-- Application logs and stack traces.
-- Container startup and health-check failures.
-- Jenkins build and deployment logs.
-- SSM command output.
-- RDS events and relevant AWS infrastructure events.
+Application metrics help show whether the service is responding normally.
 
-Never print credentials, tokens, database passwords, or secret values in logs.
+Useful measurements include:
 
-## Alerts
+- Request rate.
+- HTTP error rate.
+- Response latency.
+- Application availability.
+- Database connection failures.
 
-The assessment requires at least two meaningful alerts. The included rules cover:
-- Backend target unavailable for two minutes.
-- Host CPU usage above 85 percent for ten minutes.
+These metrics require suitable application instrumentation and a configured metrics endpoint.
 
-Configure Alertmanager and a notification receiver to deliver alerts. Add additional alerts only when the underlying metrics are available and actionable.
+### Server Metrics
 
-## Avoiding alert noise
+Server metrics help identify whether the EC2 instance is running out of resources.
 
-Use sustained thresholds rather than alerting on a single transient failure. Avoid alerts for normal short-lived CPU spikes, individual successful deployments, or expected container restarts during a release.
+Monitor:
 
-## Early detection
+- CPU utilization.
+- Memory usage.
+- Disk usage.
+- Network activity.
 
-Use a combination of:
-- Regular Prometheus scraping.
-- Grafana dashboards.
-- Health checks after deployment.
-- Container logs and restart information.
-- RDS monitoring and backup status.
-- A documented response and rollback procedure.
+Node Exporter can provide host-level metrics when it is installed and configured.
 
-## Operational checks
+### Container Metrics
 
-After deployment:
-1. Confirm both containers are running and healthy.
-2. Verify the backend can connect to RDS.
-3. Confirm Prometheus can scrape the application and host metrics.
-4. Check Grafana panels for populated metrics.
-5. Review alerts and deployment logs.
+Container monitoring helps identify repeated restarts and resource problems.
+
+Useful measurements include:
+
+- Container uptime.
+- Container restarts.
+- CPU and memory usage.
+- Container availability.
+
+cAdvisor can be used to collect container resource metrics if it is deployed.
+
+### Database Metrics
+
+RDS monitoring should cover database availability, CPU utilization, storage capacity, and database connections. Database logs and connection errors are also useful when investigating application failures.
+
+## 2. Logs That Matter
+
+The following logs are useful during troubleshooting:
+
+- Jenkins console output for pipeline failures.
+- AWS Systems Manager command output for remote deployment failures.
+- Backend container logs for application and database errors.
+- Frontend container logs for startup and serving errors.
+- RDS logs and events for database problems.
+- Prometheus and Grafana logs when monitoring is unavailable.
+
+Logs should not contain database passwords, API keys, or other sensitive values.
+
+## 3. Important Alerts
+
+The monitoring setup should include meaningful alerts, such as:
+
+- **Service unavailable:** The application or an expected metrics target is down.
+- **High CPU utilization:** The host remains under heavy load for a sustained period.
+- **High error rate:** Application failures rise above an agreed threshold.
+- **Low disk space:** The server is running out of available storage.
+- **Repeated container restarts:** A service repeatedly fails to stay running.
+
+Alert thresholds should reflect normal application behavior. Short-lived spikes should not generate unnecessary notifications.
+
+## 4. Prometheus and Grafana
+
+Prometheus collects metrics from configured targets. Grafana uses those metrics to display dashboards and evaluate configured alerts.
+
+The project monitoring directory is intended to contain:
+
+```text
+monitoring/
+├── prometheus.yml
+├── alert-rules.yml
+└── grafana-dashboard.json
+```
+
+The Prometheus configuration should identify the application metrics endpoint and any deployed exporters. The Grafana dashboard should display application performance and infrastructure health.
+
+These files must match the services actually deployed. Adding configuration files alone does not prove that metrics are being collected or alerts are firing.
+
+## 5. Basic Operational Checks
+
+Check whether the application containers are running:
+
+```bash
+docker ps
+```
+
+Inspect their recent logs:
+
+```bash
+docker logs --tail 100 todo-backend
+docker logs --tail 100 todo-frontend
+```
+
+Check the production Compose services:
+
+```bash
+docker compose \
+  -f /opt/todo-assistant/docker-compose.prod.yml \
+  ps
+```
+
+If a deployment fails, review the Jenkins console and the associated Systems Manager command output before changing the application configuration.
+
+## 6. How Problems Are Detected Early
+
+Automated tests help catch application issues before images are published. Security scans help identify potential risks in source files and container images. Deployment health checks can detect containers that fail to start or reach their expected status.
+
+Prometheus and Grafana can provide additional visibility into application and infrastructure behavior once their targets, dashboards, and alerts are configured.
+
+## Conclusion
+
+A useful monitoring setup focuses on service availability, errors, latency, infrastructure capacity, and database health. Keeping alerts focused and reviewing logs during failures helps reduce troubleshooting time and avoid unnecessary notifications.

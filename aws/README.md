@@ -1,37 +1,105 @@
-# TodoSummaryAssistant — DevOps Assessment
+# TodoSummaryAssistant — DevOps Project
 
-## 1. Project Overview
+An AWS-based DevOps implementation for TodoSummaryAssistant using Docker, Jenkins CI/CD, Amazon EC2, Amazon RDS, Amazon ECR, Amazon S3, AWS Systems Manager, and AWS Secrets Manager.
 
-TodoSummaryAssistant is a full-stack application with a Spring Boot backend, React frontend, and MySQL database.
+**Repository:** https://github.com/jakkalilokesh/TodoSummaryAssistant
 
-This repository adds DevOps automation to containerize, test, deploy, and monitor the application.
+**CI/CD:** Jenkins
 
-The focus is repeatable deployment, security, observability, and operational recovery without changing application business logic unnecessarily.
+**Deployment status:** Jenkins build #27 completed successfully, and the application interface was observed loading in a browser. Full production functionality and monitoring are not claimed as independently verified.
+
+---
+
+## 1. Project Objectives
+
+- Containerize the React frontend and Spring Boot backend.
+- Automate builds and tests through Jenkins.
+- Scan source files and Docker images for security issues.
+- Publish images to Amazon ECR.
+- Store deployment artifacts in Amazon S3.
+- Deploy to Amazon EC2 through AWS Systems Manager.
+- Connect the backend to MySQL on Amazon RDS.
+- Store database credentials in AWS Secrets Manager.
+- Support application health checks and rollback.
+- Configure Prometheus and Grafana for monitoring.
 
 ## 2. Technology Stack
 
-- **Backend:** Java 17, Spring Boot 3.4.5, Maven
-- **Frontend:** React 19, Create React App
-- **Database:** MySQL on AWS RDS for production
-- **Containers:** Docker and Docker Compose
-- **CI/CD:** Jenkins
-- **Container registry:** Amazon ECR
-- **Infrastructure:** Terraform, run locally
-- **Deployment:** AWS Systems Manager
-- **Monitoring:** Prometheus, Grafana, Node Exporter
+| Component | Technology |
+|---|---|
+| Frontend | React |
+| Backend | Spring Boot, Maven |
+| Database | MySQL, Amazon RDS |
+| Containers | Docker, Docker Compose |
+| CI/CD | Jenkins |
+| Registry | Amazon ECR |
+| Artifact storage | Amazon S3 |
+| Remote deployment | AWS Systems Manager |
+| Secrets | AWS Secrets Manager |
+| Infrastructure | Amazon EC2 |
+| Security scanning | Gitleaks, Trivy |
+| Monitoring | Prometheus, Grafana |
 
-## 3. Repository Structure
+## 3. Architecture
+
+```text
+Developer
+   |
+   v
+GitHub
+   |
+   v
+Jenkins Pipeline
+   |
+   +--> Validate configuration
+   +--> Scan secrets
+   +--> Run backend tests
+   +--> Test/build frontend
+   +--> Scan files and images
+   +--> Build Docker images
+   |
+   v
+Amazon ECR
+   |
+   v
+Amazon S3 deployment artifacts
+   |
+   v
+AWS Systems Manager
+   |
+   v
+Application EC2
+   |
+   +--> React frontend container
+   +--> Spring Boot backend container
+   |
+   v
+Amazon RDS for MySQL
+
+Prometheus --> Metrics
+Grafana --> Dashboards and alerts
+```
+
+This represents the intended deployment architecture. Monitoring configuration and production behavior depend on the actual deployed services.
+
+## Architecture Diagram
+
+![TodoSummaryAssistant DevOps Architecture](aws/architecture-diagram.png)
+
+## 4. Repository Structure
 
 ```text
 TodoSummaryAssistant/
-├── Backend/todo-summary-assistant/
-│   ├── Dockerfile
-│   └── .dockerignore
-├── Frontend/todo/
-│   ├── Dockerfile
-│   └── .dockerignore
+├── Backend/
+│   └── todo-summary-assistant/
+│       ├── Dockerfile
+│       └── .dockerignore
+├── Frontend/
+│   └── todo/
+│       ├── Dockerfile
+│       └── .dockerignore
 ├── aws/
-│   ├── architecture-diagram.png
+│   ├── docker-compose.prod.yml
 │   ├── aws-setup.md
 │   └── iac/
 ├── monitoring/
@@ -39,186 +107,397 @@ TodoSummaryAssistant/
 │   ├── alert-rules.yml
 │   └── grafana-dashboard.json
 ├── scripts/
+│   ├── deploy-app.sh
+│   ├── health-check.sh
+│   ├── rollback.sh
+│   ├── setup-app-server.sh
+│   └── trigger-deploy.sh
 ├── Jenkinsfile
-├── docker-compose.yml
 ├── .env.example
+├── README.md
 ├── FAILURE_AND_ROLLBACK.md
 └── MONITORING_AND_OPERATIONS.md
 ```
 
-## 4. Prerequisites
+The tree shows the intended submission layout. Keep the existing application paths and include optional files only if they exist in the repository.
 
-Install the following tools for local development:
+## 5. Prerequisites
+
+Install the following tools on your development machine:
 
 - Git
-- Docker Desktop with Docker Compose
-- Java 17, if running the backend outside Docker
-- Node.js and npm, if running the frontend outside Docker
-- AWS CLI and Terraform, for AWS infrastructure work
+- Java and Maven compatible with the backend
+- Node.js and npm compatible with the frontend
+- Docker and Docker Compose
+- AWS CLI, if you will manage AWS resources from your machine
 
-The Jenkins agent additionally needs Docker access, AWS CLI, Git, Java/Maven, Node.js/npm, and the security scanning tools configured by the pipeline.
+For deployment, the AWS environment also requires:
 
-## 5. Configuration and Secrets
+- Jenkins with access to the source repository.
+- An application EC2 instance registered with Systems Manager.
+- An Amazon ECR repository for each application image.
+- An S3 bucket for deployment artifacts.
+- An Amazon RDS MySQL instance.
+- A Secrets Manager secret containing database configuration.
+- IAM permissions for the Jenkins and application instance roles.
 
-Copy `.env.example` to `.env` for local development and provide appropriate local values.
+## 6. Clone the Repository
 
-Configuration includes:
-
-- `DB_URL`
-- `DB_USERNAME`
-- `DB_PASSWORD`
-- `COHERE_API_KEY`
-- `SLACK_WEBHOOK_URL`
-- `CORS_ALLOWED_ORIGINS`
-- `GRAFANA_USER`
-- `GRAFANA_PASSWORD`
-
-Never commit `.env`, credentials, access keys, private keys, or real secrets.
-
-For AWS deployment, keep database and integration credentials in AWS Secrets Manager and grant access through an IAM role. Do not put secret values in the Docker image or repository.
-
-## 6. Local Development
-
-From the repository root, build the containers:
+Open a terminal and run:
 
 ```bash
-docker compose build
+git clone https://github.com/jakkalilokesh/TodoSummaryAssistant.git
+cd TodoSummaryAssistant
 ```
 
-Start the local stack:
+Check the current branch and repository status:
 
 ```bash
-docker compose up -d
+git branch --show-current
+git status
 ```
 
-Check service status and logs:
+Use the branch configured for your Jenkins pipeline.
+
+## 7. Configure Environment Variables
+
+Create a local environment file from the example:
+
+**Linux/macOS:**
 
 ```bash
+cp .env.example .env
+```
+
+**Windows PowerShell:**
+
+```powershell
+Copy-Item .env.example .env
+```
+
+Populate the file with valid local development settings. Never commit the populated `.env` file.
+
+The deployment uses the following configuration keys where applicable:
+
+| Variable | Description |
+|---|---|
+| `DB_URL` | JDBC URL for MySQL |
+| `DB_USERNAME` | MySQL username |
+| `DB_PASSWORD` | MySQL password |
+| `COHERE_API_KEY` | AI service key |
+| `SLACK_WEBHOOK_URL` | Slack notification webhook |
+
+For production, configure sensitive values through AWS Secrets Manager or the approved secret store rather than committing them to Git.
+
+The production deployment expects the database secret to contain `DB_URL`, `DB_USERNAME`, and `DB_PASSWORD`.
+
+## 8. Run the Application Locally
+
+### Option A: Run with Docker Compose
+
+If the repository contains a local `docker-compose.yml`, configure its required environment variables and run:
+
+```bash
+docker compose up --build -d
 docker compose ps
-docker compose logs -f backend
+docker compose logs --tail=100
 ```
 
-Stop the services:
+Stop the services with:
 
 ```bash
 docker compose down
 ```
 
-The local Compose configuration requires the appropriate `.env` values and a reachable MySQL database. Verify the frontend's API URL and backend connectivity before considering the local deployment successful.
+These commands assume the local Compose file defines the application services. The production Compose file is `aws/docker-compose.prod.yml`.
 
-Default local endpoints, if the services are running and configured:
+### Option B: Run the backend
 
-- Frontend: `http://localhost:3000`
-- Prometheus: `http://localhost:9090`
-- Grafana: `http://localhost:3001`
-- Backend health: `http://localhost:8080/actuator/health`
-
-The backend health endpoint requires Spring Boot Actuator to be installed and enabled. The metrics endpoint is `http://localhost:8080/actuator/prometheus` when Micrometer Prometheus support is configured.
-
-## 7. Tests
-
-Run backend tests from the backend directory:
+Navigate to the Spring Boot project directory, using the actual path in your checkout:
 
 ```bash
+cd Backend/todo-summary-assistant
 ./mvnw test
+./mvnw spring-boot:run
 ```
 
 On Windows PowerShell:
 
 ```powershell
 .\mvnw.cmd test
+.\mvnw.cmd spring-boot:run
 ```
 
-Run frontend tests:
+If the project does not include the Maven wrapper, use an installed Maven executable:
 
 ```bash
+mvn test
+mvn spring-boot:run
+```
+
+Set the required database and service configuration before starting the backend.
+
+### Run the frontend
+
+Open a second terminal and navigate to the React project directory:
+
+```bash
+cd Frontend/todo
 npm ci
-npm test -- --watchAll=false
+npm test -- --watchAll=false --passWithNoTests
+npm run build
+npm start
 ```
 
-Run the frontend production build:
+The development server's address and port depend on the frontend configuration.
+
+If your repository uses different directory names, use the existing paths instead of renaming the application folders.
+
+## 9. Build Docker Images
+
+Build the backend image from its Dockerfile:
 
 ```bash
-npm run build
+docker build \
+  -t todo-assistant-backend:local \
+  -f Backend/todo-summary-assistant/Dockerfile \
+  Backend/todo-summary-assistant
 ```
 
-## 8. CI/CD Pipeline
+Build the frontend image:
 
-The Jenkins pipeline is designed to perform these steps:
+```bash
+docker build \
+  -t todo-assistant-frontend:local \
+  -f Frontend/todo/Dockerfile \
+  Frontend/todo
+```
 
-1. Check out the source code.
-2. Verify the required tools and configuration.
-3. Scan the repository for secrets.
-4. Run backend and frontend tests.
-5. Scan dependencies.
-6. Build Docker images tagged with the Git commit.
-7. Scan the built images.
-8. Push the images to Amazon ECR.
-9. Deploy the selected release to the application EC2 through AWS Systems Manager.
-10. Check application health and fail the build if deployment fails.
+List the built images:
 
-Jenkins configuration and AWS IAM permissions must be completed before the pipeline can run. Configure a GitHub webhook or the equivalent Jenkins SCM trigger for automatic builds.
+```bash
+docker images
+```
 
-## 9. AWS Architecture
+The Dockerfiles should use multi-stage builds where appropriate, avoid running the application as root, and exclude unnecessary files through `.dockerignore`.
 
-Terraform is run locally to provision and update AWS infrastructure.
+## 10. AWS Infrastructure Setup
 
-- EC2 runs the containerized application.
-- RDS MySQL stores application data and is not publicly accessible.
-- The RDS security group permits database access only from the application EC2 security group.
-- IAM roles provide AWS permissions without static AWS access keys.
-- ECR stores application images.
-- Systems Manager executes deployment commands.
-- Prometheus and Grafana provide monitoring and dashboards.
+### 10.1 Configure AWS CLI
 
-See `aws/aws-setup.md` and `aws/architecture-diagram.png` for the architecture and security design.
+If you have an authorized AWS profile configured:
 
-## 10. Monitoring
+```bash
+aws sts get-caller-identity
+aws configure list
+```
 
-Prometheus is configured to collect application metrics and host metrics.
+Use IAM roles for EC2 workloads. Do not place AWS access keys in application files or commit them to Git.
 
-Grafana presents operational metrics such as:
+### 10.2 Amazon ECR
 
-- Backend availability
-- HTTP request rate
-- HTTP error rate
-- Request latency
-- Host CPU usage
-- Container restarts, when container metrics are configured
+The Jenkins pipeline uses separate ECR repositories for the backend and frontend.
 
-The alert rules include backend availability and high host CPU usage. Alert delivery requires a configured Alertmanager receiver.
+List the repositories:
 
-## 11. Failure and Recovery
+```bash
+aws ecr describe-repositories \
+  --region ap-south-1
+```
 
-See `FAILURE_AND_ROLLBACK.md` for the recovery procedures covering failed deployments, application crashes, Jenkins outages, leaked secrets, EC2 failures, and RDS outages.
+Authenticate Docker to ECR when performing an authorized manual push:
 
-See `MONITORING_AND_OPERATIONS.md` for metrics, logs, alerting, and operational checks.
+```bash
+aws ecr get-login-password --region ap-south-1 |
+  docker login \
+    --username AWS \
+    --password-stdin \
+    323708468684.dkr.ecr.ap-south-1.amazonaws.com
+```
 
-Container rollback does not automatically reverse database schema changes. Database migrations must be planned to remain compatible with the previous application version.
+The registry address above is the project environment's configured registry. Replace it if deploying into another AWS account or region.
 
-## 12. Security Considerations
+Jenkins should build, tag, scan, and publish release images automatically.
 
-- Run application containers as non-root users.
-- Keep secrets out of Git and Docker images.
-- Use least-privilege IAM roles.
+### 10.3 Amazon S3
+
+List the available buckets:
+
+```bash
+aws s3 ls
+```
+
+The pipeline uploads deployment artifacts under a versioned release prefix. Verify the configured bucket and release path in Jenkins rather than assuming a particular tag.
+
+### 10.4 Amazon EC2 and Systems Manager
+
+Check the application instance state:
+
+```bash
+aws ec2 describe-instances \
+  --instance-ids i-0979ce44516967c47 \
+  --region ap-south-1 \
+  --query 'Reservations[0].Instances[0].State.Name' \
+  --output text
+```
+
+The instance must be running, registered with Systems Manager, and have appropriate permissions and network connectivity.
+
+### 10.5 Amazon RDS and Secrets Manager
+
+Check RDS instance status:
+
+```bash
+aws rds describe-db-instances \
+  --region ap-south-1 \
+  --query 'DBInstances[*].[DBInstanceIdentifier,DBInstanceStatus,Engine]' \
+  --output table
+```
+
+List secret metadata without printing secret values:
+
+```bash
+aws secretsmanager list-secrets \
+  --region ap-south-1 \
+  --query 'SecretList[*].[Name,ARN]' \
+  --output table
+```
+
+Keep the RDS database private and restrict inbound database access to the application instance's security group. Store database credentials in Secrets Manager.
+
+See `aws/aws-setup.md` for the project's infrastructure details.
+
+## 11. Jenkins CI/CD Pipeline
+
+The pipeline automates the release workflow.
+
+| Stage | Purpose |
+|---|---|
+| Checkout | Retrieves the source revision |
+| Validation | Checks required configuration |
+| Gitleaks | Detects potential exposed secrets |
+| Backend tests | Executes backend tests |
+| Frontend tests/build | Tests and builds the frontend |
+| Trivy filesystem scan | Scans project files and dependencies |
+| Docker build | Builds application images |
+| Trivy image scan | Scans built container images |
+| ECR push | Publishes versioned images |
+| S3 upload | Publishes deployment scripts and Compose configuration |
+| SSM deployment | Runs the remote deployment script |
+| Health check | Checks application container status |
+
+### Trigger a deployment
+
+1. Commit and push the intended changes to the configured Git branch.
+2. Open the Jenkins dashboard.
+3. Select the TodoSummaryAssistant pipeline.
+4. Click **Build Now**, or use the configured Git webhook.
+5. Open the new build's Console Output.
+6. Confirm the result and inspect the deployment stage.
+
+For a Git push from your local checkout:
+
+```bash
+git add .
+git commit -m "Describe the change"
+git push origin fresh-main
+```
+
+Review `git status` before using `git add .` to ensure you do not stage secrets, generated artifacts, or local configuration.
+
+The pipeline uses versioned image tags to identify releases. Review Trivy findings before treating a release as production-approved; non-blocking scan behavior does not guarantee that vulnerabilities are absent.
+
+## 12. Deployment Scripts
+
+The repository's scripts have the following responsibilities:
+
+| Script | Purpose |
+|---|---|
+| `scripts/setup-app-server.sh` | Installs required application-server dependencies on supported Ubuntu/Debian systems |
+| `scripts/trigger-deploy.sh` | Submits and monitors the remote deployment through SSM |
+| `scripts/deploy-app.sh` | Retrieves configuration, pulls images, and starts the application |
+| `scripts/health-check.sh` | Checks deployed container status |
+| `scripts/rollback.sh` | Implements the configured rollback procedure |
+
+The trigger script has also been updated to attempt OS-aware dependency installation. Confirm the latest committed version before relying on that behavior.
+
+### Check deployment containers
+
+On the application EC2 instance, after connecting through an authorized session:
+
+```bash
+docker ps
+docker compose -f /opt/todo-assistant/docker-compose.prod.yml ps
+```
+
+Inspect logs when needed:
+
+```bash
+docker logs --tail 100 todo-backend
+docker logs --tail 100 todo-frontend
+```
+
+The exact container names must match the production Compose configuration.
+
+## 13. Monitoring with Prometheus and Grafana
+
+The intended monitoring stack includes Prometheus for metrics collection and Grafana for dashboards and alerts.
+
+The `monitoring/` directory should contain:
+
+- `prometheus.yml` — scrape targets and collection settings.
+- `alert-rules.yml` — alert rules.
+- `grafana-dashboard.json` — dashboard definition.
+
+Recommended metrics include application availability, request rate, error rate, latency, host CPU/memory/disk usage, container restarts, and database availability.
+
+Monitoring is operational only when the services, scrape targets, dashboards, and alert rules are configured and working. A pipeline message that prints monitoring URLs is not sufficient proof.
+
+Refer to `MONITORING_AND_OPERATIONS.md` for operational guidance.
+
+## 14. Health Checks and Rollback
+
+After deployment, the health-check script checks the state of the backend and frontend containers. Container status alone does not guarantee that the application or its database integration is functioning correctly.
+
+For failures, inspect the Jenkins console, SSM invocation output, Docker Compose status, and application logs.
+
+Refer to `FAILURE_AND_ROLLBACK.md` for the recovery approach covering:
+
+1. Faulty application releases.
+2. Application crashes.
+3. CI/CD service unavailability.
+4. Leaked secrets.
+5. EC2 instance failures.
+6. RDS database outages.
+
+## 15. Security Practices
+
+- Do not commit secrets or populated environment files.
+- Use IAM roles and least-privilege permissions.
+- Store database credentials in Secrets Manager.
 - Keep RDS private.
-- Restrict EC2 inbound ports to those required by the application.
-- Avoid exposing Prometheus, Grafana, or internal metrics endpoints publicly.
-- Use versioned container images and verify health after deployment.
-- Review Terraform plans before applying infrastructure changes.
+- Restrict security-group rules to required traffic.
+- Use non-root containers.
+- Review Gitleaks and Trivy results.
+- Maintain identifiable image tags and rollback information.
+- Use HTTPS before exposing the application as a production service.
 
-## 13. Implementation Status
+## 16. Deployment Status
 
-The repository files and configuration must be tested in the target environment before this project is considered complete.
+Jenkins build #27 completed with `SUCCESS`, and the TodoSummaryAssistant interface was observed loading in the browser.
 
-Before submission, verify:
+This confirms the reported pipeline result and interface availability at the time of observation. It does not, by itself, verify every application integration, monitoring dashboard, alert, or recovery scenario.
 
-- Both Docker images build and run.
-- Backend and frontend tests pass.
-- The Jenkins pipeline completes from source checkout through deployment.
-- RDS is private and reachable from the application EC2.
-- Prometheus collects real application and host metrics.
-- Grafana dashboards display populated data.
-- Alerts are evaluated and notification delivery is configured.
-- Failed deployments are detected and rollback works.
-- No real credentials or secrets are committed.
+The browser session used HTTP, so HTTPS should be configured before production handover.
+
+## 17. Conclusion
+
+This project demonstrates DevOps automation for a full-stack application using Docker, Jenkins, and AWS services. It includes a pipeline for testing, image publishing, artifact delivery, and remote deployment, together with scripts and documentation for operational support.
+
+The repository is intended to provide reproducible setup and deployment instructions without exposing production secrets.
+
+---
+
+**Project:** TodoSummaryAssistant — DevOps Assessment
+
+**Source repository:** https://github.com/jakkalilokesh/TodoSummaryAssistant

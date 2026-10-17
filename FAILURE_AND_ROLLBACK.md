@@ -1,29 +1,68 @@
-# Failure and Rollback
+# Failure Handling and Rollback
 
-## 1. A faulty version is deployed
+## Overview
 
-The deployment uses a commit-specific image tag. If health checks fail, the deployment script attempts to restore the previous known-good image versions. Investigate logs and tests before redeploying.
+Deployments can fail because of application bugs, infrastructure problems, configuration mistakes, or unavailable services. The goal is to identify the problem quickly, avoid exposing secrets, and restore the last working release where possible.
 
-## 2. The application crashes after deployment
+## 1. A Faulty Version Is Deployed. How Do You Roll Back?
 
-Docker restart policies attempt to restart crashed containers. Prometheus should alert when the backend target is unavailable. Review container logs, health status, configuration, database connectivity, and resource usage.
+If a new release causes errors, check the Jenkins console output and application logs to identify the problem.
 
-## 3. Jenkins becomes unavailable
+The deployment should keep track of the last known-good image and configuration. If rollback is needed, restore that version and restart the application containers. Then check the application again.
 
-The application continues running independently of Jenkins. A release can be performed through an approved, documented operational procedure using a known image tag and the same deployment mechanism, provided the necessary AWS access and artifacts remain available. Record the manual release and reconcile it with Jenkins afterward.
+The rollback script is part of the project, but its behavior should be tested before relying on it for production recovery.
 
-## 4. Secrets are leaked
+## 2. The Application Crashes After Deployment. What Happens?
 
-Revoke or rotate the affected secret immediately. Remove the secret from active configuration, inspect logs and repository history, review access logs, and redeploy using the rotated value. Removing a secret from the latest commit alone is insufficient if it exists in Git history.
+The Docker Compose configuration uses a restart policy to restart containers after certain failures.
 
-## 5. The EC2 instance fails
+If the application still does not work, inspect the container status and logs:
 
-Recover or replace the instance using the documented infrastructure configuration. Attach the correct instance role, verify SSM registration, networking, and security groups, then deploy the last known-good image versions. Confirm RDS connectivity and application health.
+```bash
+docker ps -a
+docker logs --tail 100 todo-backend
+docker logs --tail 100 todo-frontend
+```
 
-## 6. RDS becomes unavailable
+The health-check script reports container status and prints recent logs when the check fails. A running container does not always mean the application is functioning correctly.
 
-The application may fail requests that depend on the database. Check RDS events, connectivity, security groups, and database health. Restore from a suitable backup or snapshot if necessary. Multi-AZ can improve availability but must be configured and may incur additional cost. Validate data recovery and application connectivity before reopening traffic.
+## 3. The CI/CD Tool Becomes Unavailable. Can You Still Deploy?
 
-## Limitations
+A deployment cannot be triggered through Jenkins while Jenkins is unavailable.
 
-Container rollback does not automatically reverse database schema changes. Database changes should be backward-compatible, and backup restoration procedures should be tested separately.
+An authorized operator can use AWS Systems Manager to run the existing deployment process manually, provided the necessary images and deployment artifacts already exist and the operator has the required permissions.
+
+Once Jenkins is restored, the pipeline can be used again for normal automated deployments.
+
+## 4. Secrets Are Leaked. What Steps Do You Take?
+
+If a password, API key, or webhook URL is exposed:
+
+1. Revoke or rotate the affected credential immediately.
+2. Update the secret store with the replacement value.
+3. Check logs and repository history for further exposure.
+4. Remove the secret from the repository where appropriate.
+5. Review access logs and IAM permissions.
+6. Confirm the application works with the replacement credential.
+
+Removing a secret from the latest commit is not enough if it remains in Git history. Never publish real credentials in an issue, screenshot, or log.
+
+## 5. The EC2 Instance Fails. How Do You Recover?
+
+First, check the instance state and AWS Systems Manager connectivity.
+
+If the instance can be recovered, restore its service and verify Docker and the application containers. If it cannot be recovered, create or restore an application instance, configure its IAM role and security groups, and redeploy the known-good images and configuration.
+
+The application should remain connected to the managed RDS database, provided the database itself is healthy and network access is configured correctly.
+
+## 6. The RDS Database Becomes Unavailable. What Is the Impact and Recovery Plan?
+
+The backend may be unable to read or save todo data while the database is unavailable. Database-dependent operations may fail until connectivity is restored.
+
+The recovery process is to check RDS status, database connectivity, credentials, and security-group rules. If recovery from the underlying issue is not possible, restore the database using an appropriate backup or snapshot.
+
+Automated backups, retention settings, and Multi-AZ deployment should be configured according to recovery requirements and budget. They should not be assumed to be enabled without checking the actual RDS configuration.
+
+## Conclusion
+
+The project includes deployment and rollback scripts to support recovery. These procedures should be tested in a safe environment so that a failed release or infrastructure incident can be handled consistently.
