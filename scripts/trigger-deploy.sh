@@ -7,7 +7,17 @@ set -Eeuo pipefail
 : "${BACKEND_REPO:?BACKEND_REPO is required}"
 : "${FRONTEND_REPO:?FRONTEND_REPO is required}"
 
+# Secrets Manager secret ARN
+SECRET_ARN="arn:aws:secretsmanager:ap-south-1:323708468684:secret:todo-assistant/production-i5yqjU"
+
 export AWS_DEFAULT_REGION="$AWS_REGION"
+
+for tool in aws jq; do
+  if ! command -v "$tool" >/dev/null 2>&1; then
+    echo "ERROR: Required command not found: $tool" >&2
+    exit 1
+  fi
+done
 
 account_id="$(aws sts get-caller-identity --query Account --output text)"
 registry="${account_id}.dkr.ecr.${AWS_REGION}.amazonaws.com"
@@ -16,7 +26,6 @@ backend_image="${registry}/${BACKEND_REPO}:${IMAGE_TAG}"
 frontend_image="${registry}/${FRONTEND_REPO}:${IMAGE_TAG}"
 
 instance_id="i-0979ce44516967c47"
-instance_ids="$instance_id"
 
 state="$(aws ec2 describe-instances \
   --instance-ids "$instance_id" \
@@ -29,12 +38,7 @@ if [[ "$state" != "running" ]]; then
   exit 1
 fi
 
-if [[ "$instance_ids" == *$'\t'* || "$instance_ids" == *' '* ]]; then
-  echo "ERROR: More than one instance matched; this script expects one target." >&2
-  exit 1
-fi
-
-# Create a JSON-safe payload for SSM. Secrets are fetched on the EC2 itself.
+# Build a JSON-safe command payload. Secret values are retrieved on the app EC2.
 commands_json="$(
   jq -cn \
     --arg region "$AWS_REGION" \
@@ -43,6 +47,7 @@ commands_json="$(
     --arg backend "$backend_image" \
     --arg frontend "$frontend_image" \
     --arg tag "$IMAGE_TAG" \
+    --arg secretArn "$SECRET_ARN" \
     '[
       "set -eu",
       "export AWS_REGION=" + ($region | @sh),
@@ -52,11 +57,15 @@ commands_json="$(
       "export BACKEND_IMAGE=" + ($backend | @sh),
       "export FRONTEND_IMAGE=" + ($frontend | @sh),
       "export IMAGE_TAG=" + ($tag | @sh),
+      "export SECRET_ARN=" + ($secretArn | @sh),
+      "install -d -o root -g root -m 0750 /opt/todo-assistant",
       "aws s3 cp \"s3://${ARTIFACT_BUCKET}/releases/${IMAGE_TAG}/docker-compose.prod.yml\" /opt/todo-assistant/docker-compose.prod.yml",
       "aws s3 cp \"s3://${ARTIFACT_BUCKET}/releases/${IMAGE_TAG}/health-check.sh\" /opt/todo-assistant/health-check.sh",
       "aws s3 cp \"s3://${ARTIFACT_BUCKET}/releases/${IMAGE_TAG}/rollback.sh\" /opt/todo-assistant/rollback.sh",
       "aws s3 cp \"s3://${ARTIFACT_BUCKET}/releases/${IMAGE_TAG}/deploy-app.sh\" /opt/todo-assistant/deploy-app.sh",
-      "chmod 0700 /opt/todo-assistant/*.sh",
+      "chown root:root /opt/todo-assistant/docker-compose.prod.yml /opt/todo-assistant/health-check.sh /opt/todo-assistant/rollback.sh /opt/todo-assistant/deploy-app.sh",
+      "chmod 0600 /opt/todo-assistant/docker-compose.prod.yml",
+      "chmod 0700 /opt/todo-assistant/health-check.sh /opt/todo-assistant/rollback.sh /opt/todo-assistant/deploy-app.sh",
       "exec /opt/todo-assistant/deploy-app.sh"
     ]'
 )"
@@ -65,7 +74,7 @@ parameters="$(jq -cn --argjson commands "$commands_json" '{commands:$commands}')
 
 command_id="$(
   aws ssm send-command \
-    --instance-ids "$instance_ids" \
+    --instance-ids "$instance_id" \
     --document-name AWS-RunShellScript \
     --comment "Deploy application release ${IMAGE_TAG}" \
     --parameters "$parameters" \
@@ -81,7 +90,7 @@ while (( SECONDS < deadline )); do
   status="$(
     aws ssm get-command-invocation \
       --command-id "$command_id" \
-      --instance-id "$instance_ids" \
+      --instance-id "$instance_id" \
       --query Status \
       --output text 2>/dev/null || true
   )"
@@ -94,9 +103,10 @@ while (( SECONDS < deadline )); do
     Failed|Cancelled|TimedOut)
       aws ssm get-command-invocation \
         --command-id "$command_id" \
-        --instance-id "$instance_ids" \
+        --instance-id "$instance_id" \
         --query '{Status:Status,Output:StandardOutputContent,Error:StandardErrorContent}' \
         --output json || true
+
       echo "ERROR: Remote deployment failed with status $status." >&2
       exit 1
       ;;
