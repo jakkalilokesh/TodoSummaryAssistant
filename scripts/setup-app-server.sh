@@ -11,9 +11,9 @@ if command -v apt-get >/dev/null 2>&1; then
   apt-get update
   apt-get install -y ca-certificates curl jq awscli docker.io docker-compose-v2
 elif command -v dnf >/dev/null 2>&1; then
-  dnf install -y ca-certificates curl jq awscli docker
+  dnf install -y ca-certificates curl-minimal jq awscli docker
 elif command -v yum >/dev/null 2>&1; then
-  yum install -y ca-certificates curl jq awscli docker
+  yum install -y ca-certificates curl-minimal jq awscli docker
 else
   echo "ERROR: No supported package manager found (apt-get, dnf, or yum)." >&2
   exit 1

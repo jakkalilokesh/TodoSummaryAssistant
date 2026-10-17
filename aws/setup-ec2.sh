@@ -7,7 +7,7 @@ echo "Updating system packages..."
 dnf update -y
 
 echo "Installing Docker, AWS CLI, and utilities..."
-dnf install -y docker awscli curl jq
+dnf install -y docker awscli curl-minimal jq
 
 echo "Starting Docker..."
 systemctl enable --now docker
