@@ -1,3 +1,4 @@
+
 pipeline {
     agent any
 
@@ -9,14 +10,11 @@ pipeline {
     }
 
     environment {
-        AWS_REGION       = "${env.AWS_REGION}"
-        ARTIFACT_BUCKET  = "${env.ARTIFACT_BUCKET}"
-        BACKEND_REPO     = "${env.BACKEND_REPO}"
-        FRONTEND_REPO    = "${env.FRONTEND_REPO}"
-
-        // Stable identifier for the existing application EC2 instance.
-        // Its public IP is looked up dynamically after deployment.
-        APP_INSTANCE_ID  = 'i-0979ce44516967c47'
+        AWS_REGION      = "${env.AWS_REGION}"
+        ARTIFACT_BUCKET = "${env.ARTIFACT_BUCKET}"
+        BACKEND_REPO    = "${env.BACKEND_REPO}"
+        FRONTEND_REPO   = "${env.FRONTEND_REPO}"
+        APP_INSTANCE_ID = 'i-0979ce44516967c47'
     }
 
     stages {
@@ -25,10 +23,13 @@ pipeline {
                 checkout scm
 
                 script {
-                    env.IMAGE_TAG = sh(
+                    def commit = sh(
                         script: 'git rev-parse --short=12 HEAD',
                         returnStdout: true
                     ).trim()
+
+                    env.IMAGE_TAG = "${commit}-${env.BUILD_NUMBER}"
+                    echo "Using unique immutable ECR image tag: ${env.IMAGE_TAG}"
                 }
             }
         }
@@ -114,10 +115,7 @@ pipeline {
                 sh '''
                     set -eu
 
-                    # Temporary non-blocking security scan.
-                    # Review and remediate reported vulnerabilities.
                     trivy fs \
-                        --config "" \
                         --scanners vuln \
                         --severity HIGH,CRITICAL \
                         --exit-code 0 \
@@ -163,17 +161,13 @@ pipeline {
                 sh '''
                     set -eu
 
-                    # Scan the actual images, not the current directory.
-                    # Temporary non-blocking gate; findings remain visible.
                     trivy image \
-                        --config "" \
                         --scanners vuln \
                         --severity HIGH,CRITICAL \
                         --exit-code 0 \
                         "$BACKEND_IMAGE"
 
                     trivy image \
-                        --config "" \
                         --scanners vuln \
                         --severity HIGH,CRITICAL \
                         --exit-code 0 \
@@ -198,39 +192,43 @@ pipeline {
             }
         }
 
+        stage('Upload Deployment Files') {
+            steps {
+                sh '''
+                    set -eu
 
-stage('Upload Deployment Files') {
-    steps {
-        sh '''
-            set -eu
+                    COMPOSE_FILE="aws/docker-compose.prod.yml"
 
-            COMPOSE_FILE="aws/docker-compose.prod.yml"
+                    test -f "$COMPOSE_FILE" || {
+                        echo "ERROR: $COMPOSE_FILE not found."
+                        exit 1
+                    }
 
-            test -f "$COMPOSE_FILE" || {
-                echo "ERROR: $COMPOSE_FILE not found."
-                exit 1
+                    for file in deploy-app.sh health-check.sh rollback.sh; do
+                        test -f "scripts/$file" || {
+                            echo "ERROR: scripts/$file not found."
+                            exit 1
+                        }
+                    done
+
+                    test -f "scripts/trigger-deploy.sh" || {
+                        echo "ERROR: scripts/trigger-deploy.sh not found."
+                        exit 1
+                    }
+
+                    DESTINATION="s3://${ARTIFACT_BUCKET}/releases/${IMAGE_TAG}"
+
+                    aws s3 cp "$COMPOSE_FILE" \
+                        "${DESTINATION}/docker-compose.prod.yml"
+
+                    for file in deploy-app.sh health-check.sh rollback.sh; do
+                        aws s3 cp "scripts/$file" "${DESTINATION}/$file"
+                    done
+
+                    echo "Deployment files uploaded successfully."
+                '''
             }
-
-            for file in deploy-app.sh health-check.sh rollback.sh; do
-                test -f "scripts/$file" || {
-                    echo "ERROR: scripts/$file not found."
-                    exit 1
-                }
-            done
-
-            DESTINATION="s3://${ARTIFACT_BUCKET}/releases/${IMAGE_TAG}"
-
-            aws s3 cp "$COMPOSE_FILE" \
-                "${DESTINATION}/docker-compose.prod.yml"
-
-            for file in deploy-app.sh health-check.sh rollback.sh; do
-                aws s3 cp "scripts/$file" "${DESTINATION}/$file"
-            done
-
-            echo "Deployment files uploaded successfully."
-        '''
-    }
-}
+        }
 
         stage('Deploy through SSM') {
             steps {
